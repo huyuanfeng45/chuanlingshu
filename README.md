@@ -122,6 +122,7 @@ npm run release:github
 ```
 
 这个命令会执行本机签名打包，创建或更新 `v版本号` tag，并把 `dist/传令书-版本号-arm64-local-signed.dmg` 上传到 GitHub Releases。
+上传到 GitHub 的附件会自动复制为 `chuanlingshu-版本号-arm64-local-signed.dmg`，避免中文文件名在 Release 上传接口里失败。
 
 如果已经手动打好了 DMG，可以跳过重新打包：
 

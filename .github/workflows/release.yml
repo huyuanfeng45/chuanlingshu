@@ -37,10 +37,12 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${TAG_NAME#v}"
+          UPLOAD_DMG="dist/chuanlingshu-${VERSION}-arm64.dmg"
+          cp "dist/传令书-${VERSION}-arm64.dmg" "$UPLOAD_DMG"
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" dist/*.dmg --clobber
+            gh release upload "$TAG_NAME" "$UPLOAD_DMG" --clobber
           else
-            gh release create "$TAG_NAME" dist/*.dmg \
+            gh release create "$TAG_NAME" "$UPLOAD_DMG" \
               --title "传令书 ${TAG_NAME}" \
               --notes "传令书 ${TAG_NAME} 自动构建发布包。"
           fi
