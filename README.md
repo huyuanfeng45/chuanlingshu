@@ -4,6 +4,12 @@
 
 > GitHub Releases：<https://github.com/huyuanfeng45/chuanlingshu/releases>
 
+## 快速开始
+
+1. 打开传令书，在首次配置向导里填入飞书机器人的 `App ID` 和 `App Secret`，然后把这个机器人拉进你要使用的飞书群。
+2. 在 Codex 里复制当前会话 ID，把这个会话 ID 发到飞书群里，并 `@机器人` 发送。传令书收到后会把这个飞书群和对应 Codex 会话绑定起来。
+3. 如果你想在群里免 `@机器人` 直接说话，需要到飞书开放平台给应用添加“获取群组中所有消息”权限，也就是 `im:message.group_msg`；开通后重新发布应用，并确认机器人仍在群里。
+
 ## 截图
 
 ### 系统总览
