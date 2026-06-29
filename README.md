@@ -1,6 +1,6 @@
 # 传令书
 
-本项目是一个本地桌面程序，用飞书 Bot 接收你的回复，并把 Codex 项目的状态和结果推送回飞书。当前 macOS 版本是主力版本，Windows 版本已加入技术预览构建入口。
+本项目是一个本地桌面程序，用飞书 Bot 接收你的回复，并把 Codex 项目的状态和结果推送回飞书。
 
 > GitHub Releases：<https://github.com/huyuanfeng45/chuanlingshu/releases>
 
@@ -18,7 +18,7 @@
 
 - 使用飞书长连接模式接收 Bot 消息，不需要公网回调地址。
 - 在本地维护多个 Codex 项目：别名、目录、线程 ID、飞书会话；新飞书群可直接发送 Codex 会话 ID 自动绑定到对应线程。
-- 支持飞书命令：`/help`、`/list`、`/use`、`/status`、`/diag`、`/queue`、`/add`、`/bind`、`/bind-thread`、`/threads`、`/send-attachments`、`/cancel-attachments`。
+- 支持飞书命令：`/help`、`/list`、`/use`、`/status`、`/queue`、`/add`、`/bind`、`/bind-thread`、`/threads`、`/send-attachments`、`/cancel-attachments`。
 - 普通飞书消息会转发到当前选中的 Codex 项目。
 - 默认开启镜像模式：普通消息必须发送到已绑定的现有 Codex 线程，不会自动新建隐藏线程。
 - 可选自动打开 Codex 线程：收到飞书消息后，通过 `codex://threads/<threadId>` 把 Codex App 定位到对应线程。
@@ -26,7 +26,6 @@
 - 界面输入模式会监听本机 Codex 会话记录，把对应线程的可见处理中进展和最终回复推回飞书。
 - Codex 界面输入模式不依赖 `codex app-server` 启动；`/threads`、`/attach-latest` 只是可选的线程查询辅助能力。
 - Mac 休眠/唤醒后会自动恢复飞书连接和 Codex 会话监听。
-- 支持 `/diag` 诊断卡和控制面板诊断按钮，用于查看飞书连接、辅助功能、会话监听、绑定线程和最近错误。
 - 通过 `codex app-server` 与 Codex 交互，监听 turn、plan、命令和最终回复。
 - Codex 任务会在飞书里生成一张可更新任务卡，处理中进度会按设置里的“进度推送间隔”原地更新；最终回复会另外新发一张结果卡，避免结果藏在旧卡片里。
 - Codex 界面里出现批准请求、输入请求或选项时，任务卡会立即切换为“等待你处理”；选择题可直接在飞书卡片里点选项继续发送到 Codex。
@@ -35,8 +34,6 @@
 - app-server 模式支持按项目维度排队；Codex 界面输入模式下，同群同线程的新消息会直接继续发送到已绑定 Codex 线程，不再进入应用自己的任务队列。
 - 支持在飞书里直接发送图片或文件：如果消息里同时有文字，会立即合并发送给 Codex；如果只发附件，会先暂存，等待下一条文字说明后再合并发送。
 - 支持 Codex 结果文件回传：最终回复里明确出现的项目目录内产物文件会自动上传回飞书；图片会优先按飞书图片消息发送，方便手机直接预览。
-- 支持打包成 macOS DMG。
-- 支持生成 Windows NSIS 安装包技术预览。
 - 支持 GitHub Releases 更新检查：发现新版本时，左下角状态卡片会显示“更新”入口，点击后打开 GitHub 更新列表。
 - 支持应用内版本历史：点击版本号会打开更新内容窗口，历史版本按二级菜单折叠展示。
 
@@ -48,7 +45,6 @@
 /list
 /use 项目别名
 /status
-/diag
 /queue
 /clear-queue
 /send-attachments
@@ -88,50 +84,6 @@
 
 为避免误传源码或系统文件，自动回传只处理项目目录内的产物文件，不会回传常见源码扩展名。单文件最大 30MB，单次最多回传 5 个文件；超出限制时会在任务卡里提示未回传原因。
 
-## 开发运行
-
-```bash
-npm install
-npm start
-```
-
-## 打包 DMG
-
-```bash
-npm run dist
-```
-
-产物在 `dist/` 目录。
-
-本机测试版建议使用：
-
-```bash
-npm run dist:local
-```
-
-这个脚本会生成本机签名的 arm64 DMG。
-
-本机如果存在 `Developer ID Application`、`Apple Development` 或 `Mac Developer` 代码签名证书，`dist:local` 会优先使用稳定证书签名，并生成 `*-local-signed.dmg`。这能让 macOS 辅助功能权限在后续更新中继续匹配同一个 App。只有找不到证书时才会退回 ad-hoc 签名，此时更新后可能需要重新授权辅助功能。
-
-## 发布到 GitHub
-
-推荐本机发布签名版：
-
-```bash
-npm run release:github
-```
-
-这个命令会执行本机签名打包，创建或更新 `v版本号` tag，并把 `dist/传令书-版本号-arm64-local-signed.dmg` 上传到 GitHub Releases。
-上传到 GitHub 的附件会自动复制为 `chuanlingshu-版本号-arm64-local-signed.dmg`，避免中文文件名在 Release 上传接口里失败。
-
-如果已经手动打好了 DMG，可以跳过重新打包：
-
-```bash
-SKIP_BUILD=1 npm run release:github
-```
-
-仓库也包含 `.github/workflows/release.yml`。推送 `v*` tag 或手动触发 workflow 时，GitHub Actions 会生成并上传 DMG；由于云端没有你的本机 Apple 证书，正式分发仍建议使用本机 `release:github` 发布签名版。
-
 ## 更新系统
 
 应用启动后会检查：
@@ -147,19 +99,6 @@ https://github.com/huyuanfeng45/chuanlingshu/releases
 ```
 
 应用内版本号仍可点击查看内置中文更新历史；内置历史用于快速了解变化，GitHub Releases 用于下载安装包。
-
-## 打包 Windows 安装包
-
-建议在 Windows 电脑或 Windows CI 环境中打包：
-
-```bash
-npm install
-npm run dist:win
-```
-
-产物在 `dist/` 目录，安装包使用 NSIS 格式。
-
-Windows 技术预览版沿用同一套飞书、项目、线程绑定和 Codex 会话监听逻辑；`Codex 界面输入`模式会通过 Windows 剪贴板、`codex://threads/<threadId>` 和系统按键发送把飞书消息粘贴到 Codex App。当前 Windows 版暂未启用任务卡“刷新状态”里的 Codex 窗口截图回传，最终回复和文本进度仍通过本机 `.codex/sessions` 监听回传。
 
 ## Codex 连接排查
 
@@ -200,18 +139,6 @@ Windows 技术预览版沿用同一套飞书、项目、线程绑定和 Codex �
 界面输入模式下，Codex 的回复不是从桥接程序自己的 `codex app-server` 返回，而是从本机 `~/.codex/sessions` 中监听已绑定线程的新增完成消息。因此必须先把项目绑定到真实 Codex 界面线程。
 
 如果 Mac 休眠后恢复，应用会重新同步已绑定线程、重启会话监听，并重连飞书长连接。
-
-## 诊断
-
-飞书里发送 `/diag` 可以查看当前链路状态，包括飞书长连接、投递模式、辅助功能权限、session watcher 监听数量、当前项目线程日志是否找到、最近错误和附件目录。`/panel` 控制面板里也有“诊断”按钮。
-
-任务卡会显示 Codex 界面输入链路的关键步骤：检查辅助功能、打开 Codex 线程、准备剪贴板、粘贴提交、等待会话记录、监听到用户消息、收到最终回复。任务运行中还会从本机 session 日志读取可见进展，例如 Codex 发出的处理中说明、准备执行的命令、命令/工具输出、文件修改结果，并按设置里的“进度推送间隔 ms”更新到同一张任务卡；默认 20000ms，可以改成 10000ms。
-
-如果任务已经发给 Codex，但在设置里的“无反应提醒 ms”时间内没有检测到任务开始、处理中说明、命令执行、工具输出或最终回复，传令书会在飞书里新发一条提醒，并把任务卡摘要更新为等待 Codex 可见反应超时。默认 300000ms，也就是 5 分钟；只要 Codex 有可见处理迹象，就不会触发这条提醒。
-
-## 安全提醒
-
-飞书 `App Secret` 只保存在本机 Electron userData 目录，并优先使用系统凭据能力支持的 Electron `safeStorage` 加密。不要把真实密钥写入源码、提交到 git，或发到公开聊天里。
 
 ## Star History
 
