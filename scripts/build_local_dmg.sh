@@ -8,7 +8,7 @@ APP_PATH="dist/mac-arm64/${APP_NAME}.app"
 node scripts/create_dmg_background.cjs
 
 rm -rf dist
-CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg
+CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder --mac dmg --publish never
 
 IDENTITY="${CODESIGN_IDENTITY:-}"
 if [[ -z "${IDENTITY}" ]]; then

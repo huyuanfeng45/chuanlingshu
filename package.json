@@ -9,9 +9,9 @@
     "start": "electron .",
     "lint": "node --check scripts/create_dmg_background.cjs && node --check scripts/capture_readme_screenshots.cjs && node --check src/main/main.cjs && node --check src/main/store.cjs && node --check src/main/redact.cjs && node --check src/main/codex-bin.cjs && node --check src/main/codex-session-watcher.cjs && node --check src/main/input-service.cjs && node --check src/main/desktop-input-service.cjs && node --check src/main/windows-input-service.cjs && node --check src/main/feishu-service.cjs && node --check src/main/codex-service.cjs && node --check src/main/router.cjs && node --check src/preload.cjs && node --check src/renderer/app.js",
     "build": "npm run lint",
-    "pack": "electron-builder --dir",
-    "dist": "node scripts/create_dmg_background.cjs && electron-builder --mac dmg",
-    "dist:win": "electron-builder --win nsis --x64",
+    "pack": "electron-builder --dir --publish never",
+    "dist": "node scripts/create_dmg_background.cjs && electron-builder --mac dmg --publish never",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
     "dist:local": "bash scripts/build_local_dmg.sh",
     "screenshots:readme": "electron scripts/capture_readme_screenshots.cjs",
     "release:github": "bash scripts/publish_github_release.sh"
