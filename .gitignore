@@ -1,0 +1,13 @@
+node_modules/
+.npm-cache/
+dist/
+out/
+.DS_Store
+npm-debug.log*
+yarn-error.log*
+*.log
+*.tmp
+.env
+.env.*
+!.env.example
+/app.js

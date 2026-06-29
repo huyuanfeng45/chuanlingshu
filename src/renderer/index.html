@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>传令书</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <img src="../../assets/app-icon.png" alt="">
+          <div>
+            <h1>传令书</h1>
+            <p>Codex × Feishu</p>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item active" data-view="dashboard">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4.4 18.6A9 9 0 1 1 19.6 18.6"></path>
+              <path d="M12 12l3.4-3.4"></path>
+              <path d="M7.4 14.3h.01"></path>
+              <path d="M12 5.7v.01"></path>
+              <path d="M16.6 14.3h.01"></path>
+            </svg>
+            <span>系统总览</span>
+          </button>
+          <button class="nav-item" data-view="settings">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20.3 11.5a8.2 8.2 0 0 1-8.4 8.1 8.8 8.8 0 0 1-3.7-.8L4 20l1.3-4a7.6 7.6 0 0 1-1-3.9 8.2 8.2 0 0 1 8.4-8.1 8.2 8.2 0 0 1 7.6 7.5z"></path>
+              <path d="M8.6 12h.01"></path>
+              <path d="M12 12h.01"></path>
+              <path d="M15.4 12h.01"></path>
+            </svg>
+            <span>飞书配置</span>
+          </button>
+          <button class="nav-item" data-view="projects">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+              <path d="M8 16V9"></path>
+              <path d="M12 16v-4"></path>
+              <path d="M16 16v-7"></path>
+            </svg>
+            <span>项目管理</span>
+          </button>
+          <button class="nav-item" data-view="threads">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="7" cy="6" r="2"></circle>
+              <circle cx="17" cy="18" r="2"></circle>
+              <circle cx="7" cy="18" r="2"></circle>
+              <path d="M7 8v8"></path>
+              <path d="M9 6h3.5a3.5 3.5 0 0 1 3.5 3.5V16"></path>
+            </svg>
+            <span>Codex 线程</span>
+          </button>
+          <button class="nav-item" data-view="logs">
+            <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 3.5h8.2L18 7.3v13.2H6z"></path>
+              <path d="M14 3.5v4h4"></path>
+              <path d="M9 12h6"></path>
+              <path d="M9 15.5h4"></path>
+            </svg>
+            <span>运行日志</span>
+          </button>
+        </nav>
+
+        <div class="status-card">
+          <span id="bridgeDot" class="dot"></span>
+          <div>
+            <strong id="bridgeLabel">未启动</strong>
+            <small id="bridgeSubLabel">等待配置</small>
+          </div>
+          <button id="appVersionBadge" type="button" class="version-badge" aria-label="查看更新内容" onclick="window.showReleaseNotesFromBadge && window.showReleaseNotesFromBadge()">v-</button>
+          <button id="updateAvailableButton" type="button" class="update-badge" hidden>有更新</button>
+        </div>
+      </aside>
+
+      <main class="content">
+        <div class="window-strip" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+
+        <section id="dashboard" class="view active">
+          <div class="toolbar">
+            <div>
+              <h2>总览</h2>
+              <p>启动后，飞书消息会进入本机并路由到指定 Codex 项目。</p>
+            </div>
+            <div class="actions">
+              <button id="startBridge" class="primary">启动桥接</button>
+              <button id="stopBridge">停止</button>
+            </div>
+          </div>
+
+          <div class="metrics-grid">
+            <div id="feishuMetric" class="metric metric-status">
+              <div class="metric-head">
+                <span class="metric-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M20.3 11.5a8.2 8.2 0 0 1-8.4 8.1 8.8 8.8 0 0 1-3.7-.8L4 20l1.3-4a7.6 7.6 0 0 1-1-3.9 8.2 8.2 0 0 1 8.4-8.1 8.2 8.2 0 0 1 7.6 7.5z"></path>
+                    <path d="M8.6 12h.01"></path>
+                    <path d="M12 12h.01"></path>
+                    <path d="M15.4 12h.01"></path>
+                  </svg>
+                </span>
+                <span>飞书连接</span>
+              </div>
+              <strong id="feishuStatus">未启动</strong>
+              <small id="feishuStatusHint">机器人消息监听</small>
+            </div>
+            <div id="codexMetric" class="metric metric-status">
+              <div class="metric-head">
+                <span class="metric-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M6 4h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"></path>
+                    <path d="M8.5 9.5 11 12l-2.5 2.5"></path>
+                    <path d="M13 15h3"></path>
+                  </svg>
+                </span>
+                <span>会话投递</span>
+              </div>
+              <strong id="codexStatus">未就绪</strong>
+              <small id="codexStatusHint">界面输入模式</small>
+            </div>
+            <div id="projectMetric" class="metric metric-status project-metric">
+              <div class="metric-head">
+                <span class="metric-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                    <path d="M8 16V9"></path>
+                    <path d="M12 16v-4"></path>
+                    <path d="M16 16v-7"></path>
+                  </svg>
+                </span>
+                <span>项目数量</span>
+              </div>
+              <strong><span id="projectCount">0</span> 个</strong>
+              <small id="projectCountHint">已配置项目</small>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h3>最近项目</h3>
+            </div>
+            <div id="dashboardProjects" class="project-list empty">还没有项目。</div>
+          </div>
+        </section>
+
+        <section id="settings" class="view">
+          <div class="toolbar">
+            <div>
+              <h2>飞书配置</h2>
+              <p>使用企业自建应用的 App ID 和 App Secret，长连接监听机器人消息。</p>
+            </div>
+          </div>
+
+          <form id="settingsForm" class="form-grid">
+            <label>
+              <div class="label-row">
+                <span>App ID</span>
+                <button id="openFeishuLauncher" type="button" class="inline-link-button">创建飞书机器人</button>
+              </div>
+              <input id="appId" autocomplete="off" placeholder="cli_xxx">
+            </label>
+            <label>
+              <span>App Secret</span>
+              <input id="appSecret" type="password" autocomplete="new-password" placeholder="留空则保持已有密钥">
+            </label>
+            <label>
+              <span>默认 Chat ID</span>
+              <input id="defaultChatId" autocomplete="off" placeholder="oc_xxx / chat_id">
+            </label>
+            <label>
+              <span>允许的 Sender ID</span>
+              <input id="allowedSenderIds" autocomplete="off" placeholder="可留空；多个用逗号或空格分隔">
+            </label>
+            <label>
+              <span>免艾特触发词</span>
+              <input id="triggerKeywords" autocomplete="off" placeholder="可留空；多个用逗号或空格分隔，例如：传令书, Codex">
+            </label>
+            <label>
+              <span>Codex 命令</span>
+              <input id="codexBin" autocomplete="off" placeholder="codex">
+            </label>
+            <label>
+              <span>默认模型</span>
+              <input id="model" autocomplete="off" placeholder="gpt-5.4">
+            </label>
+            <label>
+              <span>投递模式</span>
+              <select id="deliveryMode">
+                <option value="appServer">后台服务模式</option>
+                <option value="codexUi">界面输入模式</option>
+              </select>
+            </label>
+            <label>
+              <span>进度推送间隔 ms</span>
+              <input id="summaryIntervalMs" type="number" min="5000" step="1000">
+            </label>
+            <label>
+              <span>无反应提醒 ms</span>
+              <input id="noResponseAlertMs" type="number" min="30000" step="10000">
+            </label>
+            <label class="checkbox-row">
+              <input id="launchAtLogin" type="checkbox">
+              <span>开机自动启动</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="autoStart" type="checkbox">
+              <span>打开 App 后自动启动桥接</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="mirrorExistingThread" type="checkbox">
+              <span>镜像已有 Codex 线程，不自动新建隐藏线程</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="openCodexThreadOnMessage" type="checkbox">
+              <span>收到飞书消息时自动打开对应 Codex 线程</span>
+            </label>
+            <label class="checkbox-row">
+              <input id="restoreClipboardAfterPaste" type="checkbox">
+              <span>界面输入后恢复剪贴板</span>
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="primary">保存配置</button>
+              <button type="button" id="testFeishu">发送测试消息</button>
+              <button type="button" id="openUserData">打开本地配置目录</button>
+              <button type="button" id="resolveCodexBin">自动识别 Codex</button>
+              <button type="button" id="checkAccessibility">权限引导</button>
+              <button type="button" id="openSetupGuide">首次配置向导</button>
+            </div>
+          </form>
+        </section>
+
+        <section id="projects" class="view">
+          <div class="toolbar">
+            <div>
+              <h2>项目</h2>
+              <p>每个项目对应一个工作目录、一个 Codex 线程和一个飞书会话。</p>
+            </div>
+          </div>
+
+          <section id="chatBindingSection" class="panel binding-panel collapsed">
+            <div class="binding-guide">
+              <div>
+                <h4>推荐绑定方式</h4>
+                <ol>
+                  <li>在飞书新建一个群，把这个自建机器人拉进群。</li>
+                  <li>复制你要接管的 Codex 会话 ID，直接发到这个群里。</li>
+                  <li>传令书收到后会把当前飞书群绑定到对应 Codex 项目；之后群里的消息会进入这个 Codex 会话。</li>
+                </ol>
+              </div>
+              <div>
+                <h4>Codex 会话 ID 是什么</h4>
+                <p>它是 Codex 线程 ID，格式类似 <code>019f0000-0000-7000-8000-000000000000</code>，也可以是 <code>codex://threads/019f...</code> 这种链接。</p>
+                <p>最稳的复制方式：打开左侧「Codex 线程」，点击「查询」，在结果里找到目标线程，复制 <code>id</code>、<code>threadId</code> 或 <code>sessionId</code> 的值。也可以在 Codex 里复制线程链接，把 <code>codex://threads/</code> 后面的那段 ID 发到飞书群。</p>
+              </div>
+              <div>
+                <h4>群里回复是否需要 @</h4>
+                <p>默认情况下，飞书群里要 @ 机器人，机器人才能收到消息。想免 @ 接收群内所有消息，需要到飞书开放平台后台给自建应用申请并开通权限：<strong>获取群组中所有消息</strong>，权限 scope 是 <code>im:message.group_msg</code>。这是敏感权限，通常需要管理员配置和审核。</p>
+              </div>
+              <div>
+                <h4>手动绑定什么时候用</h4>
+                <p>如果要手动添加项目、指定 Codex 会话 ID，或已经知道飞书群的 <code>chat_id</code>，可以点开下面的手动绑定。飞书群 <code>chat_id</code> 一般是 <code>oc_</code> 开头；不知道时，在群里发送 <code>/whoami</code>，日志或回复里会显示当前群的 <code>chat_id</code>。</p>
+              </div>
+            </div>
+            <div class="panel-head binding-panel-head">
+              <button id="chatBindingToggle" type="button" class="binding-toggle" aria-expanded="false" aria-controls="chatBindingBody">
+                <span class="binding-chevron" aria-hidden="true">›</span>
+                <span>
+                  <strong>手动绑定</strong>
+                  <small>点击展开添加项目、线程 ID 和 Chat ID 绑定表单</small>
+                </span>
+              </button>
+            </div>
+            <div id="chatBindingBody" class="binding-body" hidden>
+              <div class="binding-subsection">
+                <h4>添加项目 / 绑定线程</h4>
+                <form id="projectForm" class="form-grid compact manual-project-form">
+                  <label>
+                    <span>别名</span>
+                    <input id="projectAlias" placeholder="new-project-18">
+                  </label>
+                  <label>
+                    <span>目录</span>
+                    <div class="input-row">
+                      <input id="projectCwd" placeholder="/Users/...">
+                      <button type="button" id="chooseProjectDir">选择</button>
+                    </div>
+                  </label>
+                  <label>
+                    <span>线程 ID</span>
+                    <input id="projectThreadId" placeholder="可留空，首次发送时自动创建">
+                  </label>
+                  <label>
+                    <span>Chat ID</span>
+                    <input id="projectChatId" placeholder="留空使用默认 Chat ID">
+                  </label>
+                  <div class="form-actions">
+                    <button class="primary" type="submit">添加项目</button>
+                  </div>
+                </form>
+              </div>
+              <div class="binding-subsection">
+                <h4>绑定飞书会话到项目</h4>
+                <form id="chatBindingForm" class="binding-form">
+                  <label>
+                    <span>Chat ID</span>
+                    <input id="bindingChatId" autocomplete="off" placeholder="oc_xxx">
+                  </label>
+                  <label>
+                    <span>项目</span>
+                    <select id="bindingProjectId"></select>
+                  </label>
+                  <button type="submit" class="primary">绑定</button>
+                </form>
+                <div id="chatBindingList" class="binding-list empty">还没有飞书会话绑定。</div>
+              </div>
+            </div>
+          </section>
+
+          <div id="projectList" class="project-list empty">还没有项目。</div>
+        </section>
+
+        <section id="threads" class="view">
+          <div class="toolbar">
+            <div>
+              <h2>Codex 线程</h2>
+              <p>读取本机 Codex 最近线程，用于绑定到项目。</p>
+            </div>
+            <div class="actions">
+              <input id="threadQuery" placeholder="搜索标题">
+              <button id="refreshThreads">查询</button>
+              <button id="testCodex">测试 Codex</button>
+            </div>
+          </div>
+          <pre id="threadResults" class="code-panel">尚未查询。</pre>
+        </section>
+
+        <section id="logs" class="view">
+          <div class="toolbar">
+            <div>
+              <h2>日志</h2>
+              <p>最近 200 条本地事件。</p>
+            </div>
+          </div>
+          <div id="logsList" class="logs empty">暂无日志。</div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <div id="permissionModal" class="modal-backdrop" hidden>
+      <section class="permission-modal" role="dialog" aria-modal="true" aria-labelledby="permissionModalTitle">
+        <div class="permission-modal-head">
+          <div>
+            <span class="modal-kicker">首次授权引导</span>
+            <h2 id="permissionModalTitle">允许传令书接管 Codex 界面</h2>
+            <p>这两个权限会让飞书消息顺利进入 Codex，并把 Codex 当前窗口状态回传到飞书。</p>
+          </div>
+          <button id="permissionModalClose" type="button" class="icon-close" aria-label="关闭">×</button>
+        </div>
+        <div class="permission-list">
+          <article class="permission-item" data-permission="accessibility">
+            <span class="permission-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 3v18"></path>
+                <path d="M5 8h14"></path>
+                <path d="M8 21l4-9 4 9"></path>
+              </svg>
+            </span>
+            <div>
+              <h3>辅助功能</h3>
+              <p>用于自动打开 Codex 线程、粘贴飞书消息并提交。</p>
+            </div>
+            <span class="permission-state">
+              <span class="permission-dot"></span>
+              <strong>检查中</strong>
+            </span>
+            <button type="button" class="permission-open" data-open-permission="accessibility">打开设置</button>
+          </article>
+          <article class="permission-item" data-permission="screen">
+            <span class="permission-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <rect x="4" y="5" width="16" height="12" rx="2"></rect>
+                <path d="M9 21h6"></path>
+                <path d="M12 17v4"></path>
+              </svg>
+            </span>
+            <div>
+              <h3>屏幕录制</h3>
+              <p>用于刷新任务卡时截取 Codex 窗口并发回飞书。</p>
+            </div>
+            <span class="permission-state">
+              <span class="permission-dot"></span>
+              <strong>检查中</strong>
+            </span>
+            <button type="button" class="permission-open" data-open-permission="screen">打开设置</button>
+          </article>
+        </div>
+        <div class="permission-modal-foot">
+          <button id="permissionRefresh" type="button">重新检查</button>
+          <button id="permissionDone" type="button" class="primary">完成</button>
+        </div>
+      </section>
+    </div>
+    <div id="setupModal" class="modal-backdrop setup-modal-backdrop" hidden>
+      <section class="setup-modal" role="dialog" aria-modal="true" aria-labelledby="setupModalTitle">
+        <aside class="setup-steps" aria-label="配置步骤">
+          <span class="modal-kicker">首次配置向导</span>
+          <h2 id="setupModalTitle">把飞书机器人接到 Codex</h2>
+          <ol>
+            <li class="setup-step active" data-step="0">
+              <span>1</span>
+              <strong>填写凭证</strong>
+            </li>
+            <li class="setup-step" data-step="1">
+              <span>2</span>
+              <strong>建立机器人</strong>
+            </li>
+            <li class="setup-step" data-step="2">
+              <span>3</span>
+              <strong>免艾特触发</strong>
+            </li>
+            <li class="setup-step" data-step="3">
+              <span>4</span>
+              <strong>权限与事件</strong>
+            </li>
+            <li class="setup-step" data-step="4">
+              <span>5</span>
+              <strong>进群测试</strong>
+            </li>
+          </ol>
+        </aside>
+        <div class="setup-content">
+          <button id="setupModalClose" type="button" class="icon-close" aria-label="关闭">×</button>
+
+          <article class="setup-panel active" data-step="0">
+            <h3>先填飞书应用凭证</h3>
+            <p>打开飞书开放平台，进入企业自建应用的「凭证与基础信息」，复制 App ID 和 App Secret 到这里。</p>
+            <div class="setup-form-grid">
+              <label>
+                <span>App ID</span>
+                <input id="setupAppId" autocomplete="off" placeholder="cli_xxx">
+              </label>
+              <label>
+                <span>App Secret</span>
+                <input id="setupAppSecret" type="password" autocomplete="new-password" placeholder="请输入 App Secret">
+              </label>
+            </div>
+            <div class="setup-tip">
+              <strong>找不到位置？</strong>
+              <span>开放平台后台 → 选择应用 → 凭证与基础信息 → 复制 App ID / App Secret。</span>
+            </div>
+            <div class="setup-link-row">
+              <button type="button" data-open-url="https://open.feishu.cn/app">打开开发者后台</button>
+              <button type="button" data-open-url="https://open.feishu.cn/page/launcher?from=backend_oneclick">新建自建应用</button>
+            </div>
+          </article>
+
+          <article class="setup-panel" data-step="1">
+            <h3>建立机器人并启用能力</h3>
+            <p>在飞书开放平台创建企业自建应用后，给应用添加「机器人」能力，并把机器人发布到企业内可用。</p>
+            <div class="setup-card-grid">
+              <div class="setup-guide-card">
+                <strong>创建应用</strong>
+                <span>选择「企业自建应用」，名称建议用「传令书」或你的团队名称。</span>
+              </div>
+              <div class="setup-guide-card">
+                <strong>添加机器人</strong>
+                <span>进入应用能力，添加「机器人」能力，保存头像和描述。</span>
+              </div>
+              <div class="setup-guide-card">
+                <strong>发布版本</strong>
+                <span>权限、事件和机器人能力配置完后，创建版本并发布到企业。</span>
+              </div>
+            </div>
+            <div class="setup-tip">
+              <strong>建议</strong>
+              <span>先把基础机器人跑通，再配置免艾特；这样出问题时更容易定位。</span>
+            </div>
+            <div class="setup-link-row">
+              <button type="button" data-open-url="https://open.feishu.cn/document/home/index">打开飞书开放平台文档</button>
+              <button type="button" data-open-url="https://open.feishu.cn/page/launcher?from=backend_oneclick">打开创建入口</button>
+            </div>
+          </article>
+
+          <article class="setup-panel" data-step="2">
+            <h3>设置免艾特触发词</h3>
+            <p>群里不想每次 @ 机器人时，推荐设置触发词。传令书会只处理这些词开头的消息，避免群聊普通消息全部进入 Codex。</p>
+            <label class="setup-wide-field">
+              <span>触发词</span>
+              <input id="setupTriggerKeywords" autocomplete="off" placeholder="例如：传令书, Codex">
+            </label>
+            <div class="setup-example">
+              <span>群里这样发：</span>
+              <code>传令书 帮我看一下这个项目为什么启动失败</code>
+            </div>
+            <div class="setup-tip">
+              <strong>真正完全免艾特</strong>
+              <span>需要在飞书后台开通「获取群组中所有消息」，权限 scope 是 <code>im:message.group_msg</code>。这个权限较敏感，通常需要管理员审核。</span>
+            </div>
+          </article>
+
+          <article class="setup-panel" data-step="3">
+            <h3>添加权限与事件订阅</h3>
+            <p>这一步决定机器人能不能收消息、发卡片、接收按钮点击，以及下载你发到群里的图片或文件。</p>
+            <div class="setup-checklist">
+              <label class="pretty-check"><input type="checkbox"><span>事件订阅添加 <code>im.message.receive_v1</code>，用于接收群消息和私聊消息。</span></label>
+              <label class="pretty-check"><input type="checkbox"><span>事件订阅添加 <code>card.action.trigger</code>，用于接收飞书卡片按钮点击。</span></label>
+              <label class="pretty-check"><input type="checkbox"><span>权限管理添加机器人发消息、发送卡片、上传图片和上传文件相关权限。</span></label>
+              <label class="pretty-check"><input type="checkbox"><span>需要免艾特时，额外申请 <code>im:message.group_msg</code> 获取群组中所有消息。</span></label>
+              <label class="pretty-check"><input type="checkbox"><span>事件订阅方式使用长连接，不需要公网回调地址。</span></label>
+            </div>
+            <div class="setup-link-row">
+              <button type="button" data-open-url="https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/request-url-configuration-case">打开事件订阅说明</button>
+              <button type="button" data-open-url="https://open.feishu.cn/document/home/index">打开权限文档</button>
+            </div>
+          </article>
+
+          <article class="setup-panel" data-step="4">
+            <h3>把机器人拉进群并测试</h3>
+            <p>最后在飞书建一个群，把机器人拉进去，然后用群消息完成项目绑定和测试。</p>
+            <div class="setup-final-list">
+              <div><strong>查看群 ID</strong><span>在群里发送 <code>/whoami</code>，传令书会返回当前 <code>chat_id</code>。</span></div>
+              <div><strong>绑定 Codex 线程</strong><span>复制 Codex 线程 ID，直接发到群里；或到「项目管理」手动填 Chat ID 和线程 ID。</span></div>
+              <div><strong>开始桥接</strong><span>回到总览点击「启动桥接」，再从飞书发一条测试消息。</span></div>
+            </div>
+            <div class="setup-tip">
+              <strong>还建议配置</strong>
+              <span>如果多人会在群里操作 Codex，可以在「飞书配置」里填允许的 Sender ID，避免陌生人触发任务。</span>
+            </div>
+          </article>
+
+          <div class="setup-footer">
+            <button id="setupSkip" type="button">稍后再说</button>
+            <span id="setupProgress">第 1 步，共 5 步</span>
+            <div>
+              <button id="setupBack" type="button">上一步</button>
+              <button id="setupNext" type="button" class="primary">下一步</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div id="releaseNotesModal" class="modal-backdrop" hidden>
+      <section class="release-notes-modal" role="dialog" aria-modal="true" aria-labelledby="releaseNotesTitle">
+        <div class="permission-modal-head">
+          <div>
+            <span class="modal-kicker">版本更新</span>
+            <h2 id="releaseNotesTitle">传令书 <span id="releaseNotesVersion">v-</span></h2>
+            <p>这里记录当前版本最重要的变化，方便你快速知道新版能做什么。</p>
+          </div>
+          <button id="releaseNotesClose" type="button" class="icon-close" aria-label="关闭">×</button>
+        </div>
+        <div class="release-notes-list">
+          <details class="release-note-version">
+            <summary>
+              <span class="release-note-icon" aria-hidden="true">🗂️</span>
+              <span>
+                <strong>v0.1.56</strong>
+                <small>更新历史改成二级菜单</small>
+              </span>
+            </summary>
+            <div class="release-note-body">
+              <p>📌 更新内容窗口现在会保留历史版本记录。</p>
+              <p>🧭 每个版本号都是可展开菜单，点一下才显示具体更新。</p>
+              <p>🎯 版本号入口放在左下角状态卡片右上方，更接近你标注的位置。</p>
+              <p>⬆️ 软件会检查 GitHub Releases，发现新版时显示「更新」入口。</p>
+            </div>
+          </details>
+          <details class="release-note-version">
+            <summary>
+              <span class="release-note-icon" aria-hidden="true">🚀</span>
+              <span>
+                <strong>v0.1.55</strong>
+                <small>版本更新弹窗</small>
+              </span>
+            </summary>
+            <div class="release-note-body">
+              <p>✨ 点击版本号可以打开「更新内容」窗口。</p>
+              <p>🇨🇳 更新说明改成中文，并加入合适的 emoji。</p>
+              <p>🪟 弹窗保持磨砂玻璃风格，关闭方式和其他弹窗一致。</p>
+            </div>
+          </details>
+          <details class="release-note-version">
+            <summary>
+              <span class="release-note-icon" aria-hidden="true">🔐</span>
+              <span>
+                <strong>v0.1.54</strong>
+                <small>首次配置向导</small>
+              </span>
+            </summary>
+            <div class="release-note-body">
+              <p>🧩 首次打开会引导授权辅助功能和屏幕录制权限。</p>
+              <p>🤖 新增飞书机器人 App ID / App Secret 填写引导。</p>
+              <p>💬 新增建群、拉机器人、免艾特触发词、权限和事件订阅说明。</p>
+              <p>🛡️ 免艾特场景会提示 <code>im:message.group_msg</code> 权限要求。</p>
+            </div>
+          </details>
+          <details class="release-note-version">
+            <summary>
+              <span class="release-note-icon" aria-hidden="true">🛠️</span>
+              <span>
+                <strong>v0.1.52</strong>
+                <small>权限弹窗与点击修复</small>
+              </span>
+            </summary>
+            <div class="release-note-body">
+              <p>✅ 修复隐藏弹窗遮罩挡住主界面按钮的问题。</p>
+              <p>🟢 权限状态支持绿点/红点显示，授权状态更直观。</p>
+              <p>⚙️ 优化辅助功能、屏幕录制权限检查和跳转体验。</p>
+            </div>
+          </details>
+          <details class="release-note-version">
+            <summary>
+              <span class="release-note-icon" aria-hidden="true">📨</span>
+              <span>
+                <strong>v0.1.46</strong>
+                <small>Codex 操作提醒卡片</small>
+              </span>
+            </summary>
+            <div class="release-note-body">
+              <p>🧠 Codex 出现批准按钮或选择项时，会同步到飞书卡片。</p>
+              <p>✅ 支持在飞书里点选项后回传到对应 Codex 会话。</p>
+              <p>🔁 任务状态卡片会继续跟踪 Codex 处理进度。</p>
+            </div>
+          </details>
+        </div>
+        <div class="permission-modal-foot">
+          <button id="releaseNotesGithub" type="button">GitHub 更新列表</button>
+          <button id="releaseNotesDone" type="button" class="primary">知道了</button>
+        </div>
+      </section>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>

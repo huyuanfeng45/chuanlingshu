@@ -1,0 +1,100 @@
+{
+  "name": "codex-feishu-bridge",
+  "version": "0.1.56",
+  "description": "A local desktop bridge that relays Codex thread status and Feishu bot replies.",
+  "author": "HYF",
+  "main": "src/main/main.cjs",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "lint": "node --check scripts/create_dmg_background.cjs && node --check scripts/capture_readme_screenshots.cjs && node --check src/main/main.cjs && node --check src/main/store.cjs && node --check src/main/redact.cjs && node --check src/main/codex-bin.cjs && node --check src/main/codex-session-watcher.cjs && node --check src/main/input-service.cjs && node --check src/main/desktop-input-service.cjs && node --check src/main/windows-input-service.cjs && node --check src/main/feishu-service.cjs && node --check src/main/codex-service.cjs && node --check src/main/router.cjs && node --check src/preload.cjs && node --check src/renderer/app.js",
+    "build": "npm run lint",
+    "pack": "electron-builder --dir",
+    "dist": "node scripts/create_dmg_background.cjs && electron-builder --mac dmg",
+    "dist:win": "electron-builder --win nsis --x64",
+    "dist:local": "bash scripts/build_local_dmg.sh",
+    "screenshots:readme": "electron scripts/capture_readme_screenshots.cjs",
+    "release:github": "bash scripts/publish_github_release.sh"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "1.68.0"
+  },
+  "overrides": {
+    "axios": "1.18.1"
+  },
+  "devDependencies": {
+    "electron": "42.5.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.hyf.codexfeishubridge",
+    "productName": "传令书",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "build/icon.icns",
+      "build/icon.ico",
+      "package.json"
+    ],
+    "asar": true,
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "icon": "build/icon.icns"
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "icon": "build/icon.icns",
+      "background": "build/dmg-background.png",
+      "iconSize": 96,
+      "window": {
+        "width": 660,
+        "height": 420
+      },
+      "contents": [
+        {
+          "x": 178,
+          "y": 214,
+          "type": "file"
+        },
+        {
+          "x": 488,
+          "y": 214,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "传令书",
+      "uninstallDisplayName": "传令书"
+    }
+  }
+}
