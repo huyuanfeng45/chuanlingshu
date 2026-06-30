@@ -1,6 +1,6 @@
 {
   "name": "codex-feishu-bridge",
-  "version": "0.1.58",
+  "version": "0.1.59",
   "description": "A local desktop bridge that relays Codex thread status and Feishu bot replies.",
   "author": "HYF",
   "main": "src/main/main.cjs",

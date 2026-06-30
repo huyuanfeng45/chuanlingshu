@@ -788,6 +788,10 @@ class BridgeRouter extends EventEmitter {
     const pathAttachments = inlineImageCount
       ? attachments.filter((attachment) => !isInlineCodexUiImageAttachment(attachment))
       : attachments;
+    if (inlineImageCount && !pathAttachments.length) {
+      return String(note || '').trim();
+    }
+
     const lines = [
       inlineImageCount
         ? `我在飞书里发送了 ${inlineImageCount} 张图片，图片已经作为 Codex 聊天框附件插入。`
