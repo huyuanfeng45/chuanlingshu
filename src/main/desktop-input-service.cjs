@@ -286,9 +286,13 @@ end tell
     }
 
     await openCodexThread(threadId);
-    await delay(1400);
+    let bounds = null;
+    let lastBoundsError = null;
+    let lastBoundsText = '';
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await delay(attempt === 0 ? 1400 : 700);
 
-    const boundsText = await runAppleScript(`
+      const boundsText = await runAppleScript(`
 tell application "Codex"
   activate
 end tell
@@ -298,14 +302,53 @@ tell application "System Events"
   tell process "Codex"
     set frontmost to true
     if (count of windows) is 0 then error "没有找到 Codex 窗口"
-    set winPosition to position of window 1
-    set winSize to size of window 1
-    return (item 1 of winPosition as text) & "," & (item 2 of winPosition as text) & "," & (item 1 of winSize as text) & "," & (item 2 of winSize as text)
+    set bestArea to 0
+    set bestBounds to ""
+    set fallbackArea to 0
+    set fallbackBounds to ""
+    repeat with i from 1 to count of windows
+      set currentWindow to window i
+      set minimizedWindow to false
+      try
+        set minimizedWindow to value of attribute "AXMinimized" of currentWindow
+      end try
+      if minimizedWindow is false then
+        set winPosition to position of currentWindow
+        set winSize to size of currentWindow
+        set winWidth to item 1 of winSize
+        set winHeight to item 2 of winSize
+        set winArea to winWidth * winHeight
+        set boundsText to (item 1 of winPosition as text) & "," & (item 2 of winPosition as text) & "," & (winWidth as text) & "," & (winHeight as text)
+        if winArea > fallbackArea then
+          set fallbackArea to winArea
+          set fallbackBounds to boundsText
+        end if
+        if winWidth is greater than or equal to 160 and winHeight is greater than or equal to 120 and winArea > bestArea then
+          set bestArea to winArea
+          set bestBounds to boundsText
+        end if
+      end if
+    end repeat
+    if bestBounds is not "" then return bestBounds
+    if fallbackBounds is not "" then return fallbackBounds
+    error "没有找到可截图的 Codex 窗口"
   end tell
 end tell
 `, 12000);
 
-    const bounds = parseBounds(boundsText);
+      lastBoundsText = boundsText;
+      try {
+        bounds = parseBounds(boundsText);
+        break;
+      } catch (error) {
+        lastBoundsError = error;
+      }
+    }
+
+    if (!bounds) {
+      throw lastBoundsError || new Error(`无法识别 Codex 窗口位置：${lastBoundsText || 'empty'}`);
+    }
+
     fs.mkdirSync(outputDir, { recursive: true });
 
     const filePath = path.join(outputDir, `codex-${safeFileSegment(threadId)}-${Date.now()}.jpg`);
