@@ -562,6 +562,20 @@
         <div class="release-notes-list">
           <details class="release-note-version">
             <summary>
+              <span class="release-note-icon" aria-hidden="true">🧭</span>
+              <span>
+                <strong>v0.1.57</strong>
+                <small>群聊绑定防误投递</small>
+              </span>
+            </summary>
+            <div class="release-note-body">
+              <p>🧷 只发送 Codex 会话 ID 时，即使群已绑定，也会重新绑定到这个会话。</p>
+              <p>🛑 如果消息开头是会话 ID 但后面还有说明文字，会先拦截提醒，不再误发到旧线程。</p>
+              <p>🧩 同一项目目录下多个 Codex 线程会尽量独立绑定，减少互相覆盖。</p>
+            </div>
+          </details>
+          <details class="release-note-version">
+            <summary>
               <span class="release-note-icon" aria-hidden="true">🗂️</span>
               <span>
                 <strong>v0.1.56</strong>

@@ -352,6 +352,14 @@ function parseBareCodexThreadId(value) {
   return match ? match[1] : '';
 }
 
+function parseLeadingCodexThreadId(value) {
+  const text = normalizeMessageText(value)
+    .replace(/^</, '')
+    .trim();
+  const match = text.match(/^(?:codex:\/\/threads\/)?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\?[^>\s]*)?>?(?=\s|$|[，,。.:：])/i);
+  return match ? match[1] : '';
+}
+
 function threadIdFromThread(thread) {
   return thread?.id || thread?.threadId || thread?.sessionId || '';
 }
@@ -543,8 +551,22 @@ class BridgeRouter extends EventEmitter {
       }
 
       const directThreadId = attachments.length ? '' : parseBareCodexThreadId(text);
-      if (directThreadId && !this.hasExplicitChatBinding(message.chatId)) {
+      if (directThreadId) {
         await this.bindChatToThreadId(message.chatId, directThreadId);
+        return;
+      }
+
+      const leadingThreadId = attachments.length ? '' : parseLeadingCodexThreadId(text);
+      if (leadingThreadId) {
+        await this.safeSendText(message.chatId, [
+          `检测到消息开头是 Codex 会话 ID：${leadingThreadId}`,
+          '为了避免把内容发到旧绑定线程，传令书没有继续投递这条消息。',
+          '',
+          '如果要把当前群切换到这个会话，请只发送这一整个会话 ID，或发送：',
+          `/bind-thread ${leadingThreadId}`,
+          '',
+          '如果这只是普通说明，请删掉开头的会话 ID 后重新发送。'
+        ].join('\n'));
         return;
       }
 
@@ -2075,9 +2097,12 @@ class BridgeRouter extends EventEmitter {
   findProjectForThreadInfo(info) {
     if (!info?.cwd) return null;
     const cwd = path.resolve(info.cwd);
-    return (this.store.state.projects || []).find((project) => (
+    const projects = (this.store.state.projects || []).filter((project) => (
       project.cwd && path.resolve(project.cwd) === cwd
-    )) || null;
+    ));
+    return projects.find((project) => project.threadId === info.threadId)
+      || projects.find((project) => !project.threadId)
+      || null;
   }
 
   createProjectForThreadInfo(info, chatId) {
