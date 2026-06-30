@@ -10,6 +10,7 @@ const MAX_RESULT_UPLOAD_FILES = 5;
 const MAX_RESULT_IMAGE_BYTES = 10 * 1024 * 1024;
 const PENDING_ATTACHMENT_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_NO_RESPONSE_ALERT_MS = 5 * 60 * 1000;
+const WATCH_REPLAY_WINDOW_MS = 30 * 60 * 1000;
 const CODEX_THREAD_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const RESULT_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.tif', '.tiff', '.ico']);
 const RESULT_UPLOAD_EXTENSIONS = new Set([
@@ -1510,6 +1511,10 @@ class BridgeRouter extends EventEmitter {
       case '/status':
         await this.sendProjectStatus(chatId, parts[0]);
         return;
+      case '/watch':
+      case '/看':
+        await this.watchExistingTaskFromCommand(chatId, parts.join(' '));
+        return;
       case '/diag':
         await this.sendDiagnosticCard(chatId, parts[0]);
         return;
@@ -1570,6 +1575,8 @@ class BridgeRouter extends EventEmitter {
       '/list 查看项目',
       '/use 项目别名 切换当前项目',
       '/status [项目别名] 查看状态',
+      '/watch [项目别名或线程ID] 接管电脑端已经开始的 Codex 任务',
+      '/看 [项目别名或线程ID] 同 /watch',
       '/diag [项目别名] 查看诊断',
       '/queue [项目别名] 查看队列',
       '/clear-queue [项目别名] 清空队列',
@@ -1590,6 +1597,7 @@ class BridgeRouter extends EventEmitter {
       '',
       '选中并绑定现有线程后，直接发送普通消息、图片或文件即可转发到同一个 Codex 线程。',
       '新群第一次可以直接发送 Codex 会话 ID，传令书会自动把这个群绑定到该线程。',
+      '如果任务是在电脑 Codex 里手动开始的，离开前在群里发送 /watch 或 /看，可以补一张任务卡继续观察进度。',
       '单独发送图片或文件时，会先暂存；再发一条文字说明后，会和附件合并发送给 Codex。',
       'Codex 界面输入模式下，同群同线程的新消息会直接继续发送；app-server 模式下，同一项目忙碌时才会进入队列。',
       '群聊里如果没有开通“获取群组中所有消息”权限，请先 @ 机器人再发送命令或消息。'
@@ -1736,6 +1744,169 @@ class BridgeRouter extends EventEmitter {
       return;
     }
     await this.sendStatusCard(chatId, project);
+  }
+
+  async watchExistingTaskFromCommand(chatId, target = '') {
+    const project = await this.resolveWatchProject(chatId, target);
+    if (!project) return;
+
+    if (!project.threadId) {
+      await this.safeSendText(chatId, [
+        `项目 ${project.alias} 还没有绑定 Codex 线程。`,
+        '请发送 `/threads` 查询线程后用 `/bind 项目别名 thread_id` 绑定，',
+        '或直接发送 `/watch thread_id` / `/看 thread_id` 精确接管。'
+      ].join('\n'));
+      return;
+    }
+
+    this.store.setActiveProject(chatId, project.id);
+    if (!project.chatId) {
+      this.store.updateProject(project.id, { chatId });
+    }
+
+    const latestBefore = this.store.getProject(project.id) || project;
+    const sinceMs = Date.now() - WATCH_REPLAY_WINDOW_MS;
+    this.watchCodexUiThread(latestBefore.threadId, {
+      fromEnd: false,
+      sinceMs,
+      forceReplay: true
+    });
+
+    const turnId = latestBefore.activeTurnId || latestBefore.taskCard?.turnId || '';
+    this.addCodexUiPending(latestBefore.threadId, {
+      requestId: `watch:${latestBefore.threadId}:${Date.now()}`,
+      projectId: latestBefore.id,
+      projectAlias: latestBefore.alias,
+      threadId: latestBefore.threadId,
+      chatId,
+      prompt: latestBefore.taskCard?.prompt || '电脑端已开始的 Codex 任务',
+      sourceMessageId: '',
+      sentAt: sinceMs,
+      turnId,
+      userMessageSeen: true,
+      watchOnly: true
+    });
+
+    this.store.updateProject(latestBefore.id, {
+      status: 'running',
+      activeTurnId: turnId,
+      chatId: latestBefore.chatId || chatId,
+      lastError: '',
+      lastSummary: '已从飞书接管电脑端正在运行的 Codex 任务。'
+    });
+    const latest = this.store.getProject(latestBefore.id) || latestBefore;
+    await this.upsertTaskCard(latest, chatId, {
+      reset: ['completed', 'failed'].includes(latestBefore.taskCard?.status),
+      status: 'running',
+      threadId: latest.threadId,
+      turnId,
+      prompt: latestBefore.taskCard?.prompt || '电脑端已开始的 Codex 任务',
+      summary: [
+        '已接管电脑端 Codex 任务，后续进展会继续更新到这张卡片。',
+        `正在回放最近 ${Math.round(WATCH_REPLAY_WINDOW_MS / 60000)} 分钟的会话日志，随后会持续监听新进展。`
+      ].join('\n'),
+      result: '',
+      error: '',
+      actionRequired: null
+    });
+
+    if (typeof this.sessionWatcher?.poll === 'function') {
+      await this.sessionWatcher.poll().catch((error) => {
+        this.store.addEvent('error', `接管后立即读取 Codex 日志失败：${error.message}`, {
+          project: latest.alias,
+          threadId: latest.threadId
+        });
+      });
+    }
+  }
+
+  async resolveWatchProject(chatId, target = '') {
+    const raw = normalizeMessageText(target);
+    const threadId = parseBareCodexThreadId(raw) || parseLeadingCodexThreadId(raw);
+    if (threadId) {
+      return this.resolveWatchProjectByThread(chatId, threadId);
+    }
+
+    if (raw) {
+      const project = this.store.getProject(raw);
+      if (!project) {
+        await this.safeSendText(chatId, `找不到项目或线程：${raw}\n用法：/watch [项目别名或线程ID]，中文命令也可以用 /看。`);
+        return null;
+      }
+      return project;
+    }
+
+    const project = this.store.getActiveProject(chatId);
+    if (!project) {
+      await this.safeSendText(chatId, [
+        '当前飞书会话还没有选中项目。',
+        '可以先发送 `/list` 和 `/use 项目别名`，',
+        '或者直接发送 `/watch thread_id` / `/看 thread_id`。'
+      ].join('\n'));
+      return null;
+    }
+    return project;
+  }
+
+  async resolveWatchProjectByThread(chatId, threadId) {
+    let project = this.store.getProjectByThread(threadId);
+    let info = null;
+    let lookupError = null;
+
+    if (!project) {
+      try {
+        info = await this.resolveCodexThreadInfo(threadId);
+      } catch (error) {
+        lookupError = error;
+        this.store.addEvent('error', `接管任务查询 Codex 线程失败：${error.message}`, { threadId });
+      }
+
+      project = this.findProjectForThreadInfo(info);
+      if (project) {
+        this.store.updateProject(project.id, {
+          threadId,
+          chatId: project.chatId || chatId
+        });
+        project = this.store.getProject(project.id);
+      }
+    }
+
+    if (!project && info?.cwd) {
+      project = this.createProjectForThreadInfo(info, chatId);
+    }
+
+    if (!project && (this.store.state.projects || []).length === 1) {
+      project = this.store.state.projects[0];
+      this.store.updateProject(project.id, {
+        threadId,
+        chatId: project.chatId || chatId
+      });
+      project = this.store.getProject(project.id);
+    }
+
+    if (!project) {
+      await this.safeSendText(chatId, [
+        `还不能接管这个 Codex 线程：${threadId}`,
+        lookupError ? `线程查询失败：${lookupError.message}` : '没有在已有项目里找到这个线程，也没有从本机 session 日志里拿到项目目录。',
+        '',
+        '可以先明确绑定：',
+        '/list 查看项目别名',
+        `/bind 项目别名 ${threadId}`,
+        '',
+        '绑定后再发送 `/watch` 或 `/看`。'
+      ].join('\n'));
+      return null;
+    }
+
+    this.store.setActiveProject(chatId, project.id);
+    if (!project.chatId || project.threadId !== threadId) {
+      this.store.updateProject(project.id, {
+        threadId,
+        chatId: project.chatId || chatId
+      });
+      project = this.store.getProject(project.id);
+    }
+    return project;
   }
 
   async sendQueueStatus(chatId, alias) {
@@ -2813,9 +2984,14 @@ class BridgeRouter extends EventEmitter {
     };
   }
 
-  watchCodexUiThread(threadId) {
+  watchCodexUiThread(threadId, options = {}) {
     if (!threadId || !this.sessionWatcher) return;
-    this.sessionWatcher.watchThread(threadId, { fromEnd: true });
+    const sinceMs = Number(options.sinceMs || 0);
+    this.sessionWatcher.watchThread(threadId, {
+      fromEnd: sinceMs ? false : options.fromEnd !== false,
+      sinceMs,
+      forceReplay: options.forceReplay === true
+    });
     this.sessionWatcher.start();
   }
 

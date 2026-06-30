@@ -35,7 +35,8 @@ function normalizeWatchEntry(entry) {
   return {
     threadId: normalizeThreadId(entry.threadId),
     fromEnd: entry.fromEnd !== false,
-    sinceMs: normalizeSinceMs(entry.sinceMs)
+    sinceMs: normalizeSinceMs(entry.sinceMs),
+    forceReplay: entry.forceReplay === true
   };
 }
 
@@ -155,13 +156,27 @@ class CodexSessionWatcher extends EventEmitter {
     this.threads.clear();
   }
 
-  watchThread(threadId, { fromEnd = true, sinceMs = 0 } = {}) {
+  watchThread(threadId, { fromEnd = true, sinceMs = 0, forceReplay = false } = {}) {
     const id = normalizeThreadId(threadId);
     if (!id) return null;
 
     const replaySinceMs = normalizeSinceMs(sinceMs);
     const existing = this.threads.get(id);
     if (existing) {
+      if (forceReplay && replaySinceMs) {
+        const filePath = existing.filePath || this.findSessionFile(id);
+        existing.filePath = filePath;
+        existing.offset = this.initialOffset(filePath, {
+          fromEnd: false,
+          sinceMs: replaySinceMs
+        });
+        existing.fromEnd = false;
+        existing.replaySinceMs = replaySinceMs;
+        existing.waitingForFile = !filePath;
+        existing.buffer = '';
+        existing.decoder = new StringDecoder('utf8');
+        return existing.filePath || null;
+      }
       if (!existing.replaySinceMs && replaySinceMs) {
         existing.replaySinceMs = replaySinceMs;
         existing.fromEnd = false;
@@ -200,7 +215,8 @@ class CodexSessionWatcher extends EventEmitter {
     for (const entry of next.values()) {
       this.watchThread(entry.threadId, {
         fromEnd: entry.fromEnd,
-        sinceMs: entry.sinceMs
+        sinceMs: entry.sinceMs,
+        forceReplay: entry.forceReplay
       });
     }
   }

@@ -1,6 +1,6 @@
 const path = require('path');
 const https = require('https');
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, powerMonitor, systemPreferences } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, Tray, nativeImage, powerMonitor, powerSaveBlocker, systemPreferences } = require('electron');
 const { ConfigStore } = require('./store.cjs');
 const { FeishuService } = require('./feishu-service.cjs');
 const { CodexService, stringifyError } = require('./codex-service.cjs');
@@ -20,6 +20,7 @@ let desktopInput = null;
 let sessionWatcher = null;
 let sessionEventQueue = Promise.resolve();
 let lastTrayRunning = null;
+let taskPowerBlockerId = null;
 
 const APP_DISPLAY_NAME = '传令书';
 const USER_DATA_DIR = 'codex-feishu-bridge';
@@ -333,6 +334,29 @@ function updateTrayIcon(running) {
   tray.setContextMenu(buildTrayMenu(isRunning));
 }
 
+function syncTaskPowerBlocker() {
+  if (!store) return;
+  const shouldBlock = Boolean(
+    store.state.runtime.bridgeRunning
+    && (store.state.projects || []).some(projectNeedsSessionRecovery)
+  );
+  const active = taskPowerBlockerId !== null && powerSaveBlocker.isStarted(taskPowerBlockerId);
+
+  if (shouldBlock && !active) {
+    taskPowerBlockerId = powerSaveBlocker.start('prevent-display-sleep');
+    log('system', '检测到 Codex 任务运行中，已临时保持 Mac 唤醒');
+    return;
+  }
+
+  if (!shouldBlock && taskPowerBlockerId !== null) {
+    if (powerSaveBlocker.isStarted(taskPowerBlockerId)) {
+      powerSaveBlocker.stop(taskPowerBlockerId);
+    }
+    taskPowerBlockerId = null;
+    log('system', 'Codex 任务已结束，已恢复 Mac 正常睡眠策略');
+  }
+}
+
 function broadcast(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, payload);
@@ -409,6 +433,7 @@ function configureServices() {
   store.on('changed', (state) => {
     broadcast('state:changed', withAppVersion(state));
     updateTrayIcon(state.runtime?.bridgeRunning);
+    syncTaskPowerBlocker();
     if (state.runtime?.bridgeRunning) syncSessionWatcherThreads({ logRecovery: false });
   });
   feishu.on('status', (status) => store.updateRuntime({ feishuStatus: status }));
