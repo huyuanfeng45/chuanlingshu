@@ -404,6 +404,12 @@ function attachmentTypeLabel(type) {
   return '附件';
 }
 
+function isInlineCodexUiImageAttachment(attachment) {
+  if (!attachment?.path) return false;
+  if (attachment.type === 'image') return true;
+  return RESULT_IMAGE_EXTENSIONS.has(path.extname(attachment.path || '').toLowerCase());
+}
+
 function attachmentBaseName(attachment, index) {
   const fallback = `${attachment.type || 'attachment'}-${attachment.fileKey || index + 1}`;
   const name = path.basename(attachment.fileName || fallback);
@@ -644,10 +650,25 @@ class BridgeRouter extends EventEmitter {
   }
 
   async sendAttachmentPrompt(project, chatId, attachments, note = '', options = {}) {
-    const prompt = this.buildAttachmentPrompt(project, attachments, note);
-    await this.sendPromptToProject(project.id, prompt, chatId, {
-      sourceMessageId: options.sourceMessageId || ''
+    const inlineImages = this.shouldPasteAttachmentsIntoCodexUi(project)
+      ? attachments.filter(isInlineCodexUiImageAttachment)
+      : [];
+    const prompt = this.buildAttachmentPrompt(project, attachments, note, {
+      inlineImageCount: inlineImages.length
     });
+    await this.sendPromptToProject(project.id, prompt, chatId, {
+      sourceMessageId: options.sourceMessageId || '',
+      attachments: inlineImages
+    });
+  }
+
+  shouldPasteAttachmentsIntoCodexUi(project) {
+    return Boolean(
+      project?.threadId
+      && this.store.state.settings.deliveryMode === 'codexUi'
+      && this.desktopInput
+      && typeof this.desktopInput.pasteRichIntoCodex === 'function'
+    );
   }
 
   pendingAttachmentKey(chatId, projectId) {
@@ -762,21 +783,42 @@ class BridgeRouter extends EventEmitter {
     return path.join(base, 'feishu-attachments', dateFolderName(), projectName);
   }
 
-  buildAttachmentPrompt(project, attachments, note = '') {
+  buildAttachmentPrompt(project, attachments, note = '', options = {}) {
+    const inlineImageCount = Number(options.inlineImageCount || 0);
+    const pathAttachments = inlineImageCount
+      ? attachments.filter((attachment) => !isInlineCodexUiImageAttachment(attachment))
+      : attachments;
     const lines = [
-      '我在飞书里发送了附件，请你基于这些本地文件继续处理。',
+      inlineImageCount
+        ? `我在飞书里发送了 ${inlineImageCount} 张图片，图片已经作为 Codex 聊天框附件插入。`
+        : '我在飞书里发送了附件，请你基于这些本地文件继续处理。',
       '',
-      `项目：${project.alias}`,
-      '附件：',
-      ...attachments.map((attachment, index) => (
-        `${index + 1}. ${attachmentTypeLabel(attachment.type)}：${attachment.fileName || attachment.fileKey}\n   路径：${attachment.path}\n   大小：${formatBytes(attachment.size)}`
-      ))
+      `项目：${project.alias}`
     ];
+
+    if (inlineImageCount) {
+      lines.push('', '图片：已随本条消息一起粘贴到聊天框。');
+    }
+
+    if (pathAttachments.length) {
+      lines.push(
+        '',
+        inlineImageCount ? '其他附件：' : '附件：',
+        ...pathAttachments.map((attachment, index) => (
+          `${index + 1}. ${attachmentTypeLabel(attachment.type)}：${attachment.fileName || attachment.fileKey}\n   路径：${attachment.path}\n   大小：${formatBytes(attachment.size)}`
+        ))
+      );
+    }
 
     if (note) {
       lines.push('', '我的补充说明：', note);
     } else {
-      lines.push('', '没有额外说明时，请先检查附件内容，并给出你建议的下一步。');
+      lines.push(
+        '',
+        inlineImageCount
+          ? '没有额外说明时，请先查看图片内容，并给出你建议的下一步。'
+          : '没有额外说明时，请先检查附件内容，并给出你建议的下一步。'
+      );
     }
 
     return lines.join('\n');
@@ -1084,6 +1126,7 @@ class BridgeRouter extends EventEmitter {
       chatId,
       sourceMessageId: options.sourceMessageId || '',
       senderId: options.senderId || '',
+      attachments: Array.isArray(options.attachments) ? options.attachments : [],
       createdAt: new Date().toISOString()
     };
   }
@@ -1162,7 +1205,8 @@ class BridgeRouter extends EventEmitter {
       await this.sendPromptToProject(latest.id, entry.prompt, entry.chatId || chatId, {
         sourceMessageId: entry.sourceMessageId,
         appendToActive: true,
-        queueIfBusy: false
+        queueIfBusy: false,
+        attachments: entry.attachments || []
       });
     } catch (error) {
       this.store.updateProject(latest.id, { taskQueue: [entry, ...rest] });
@@ -1200,7 +1244,8 @@ class BridgeRouter extends EventEmitter {
       await this.sendPromptToProject(latest.id, entry.prompt, entry.chatId || chatIdOverride || latest.chatId, {
         sourceMessageId: entry.sourceMessageId,
         queueIfBusy: false,
-        fromQueue: true
+        fromQueue: true,
+        attachments: entry.attachments || []
       });
       return true;
     } catch (error) {
@@ -2548,12 +2593,21 @@ class BridgeRouter extends EventEmitter {
       throw new Error('Codex 界面输入服务未初始化');
     }
 
+    const inlineImages = Array.isArray(options.attachments)
+      ? options.attachments.filter(isInlineCodexUiImageAttachment)
+      : [];
     const pending = this.createCodexUiPending(project, prompt, chatId, options);
     const receivedSummary = options.followUpDuringBusy
-      ? '已收到补充消息，准备发送到当前 Codex 线程。'
+      ? inlineImages.length
+        ? `已收到补充消息和 ${inlineImages.length} 张图片，准备发送到当前 Codex 线程。`
+        : '已收到补充消息，准备发送到当前 Codex 线程。'
       : options.fromQueue
-        ? '已从队列取出，准备通过 Codex 界面发送。'
-        : '已收到任务，准备通过 Codex 界面发送。';
+        ? inlineImages.length
+          ? `已从队列取出 ${inlineImages.length} 张图片，准备通过 Codex 界面发送。`
+          : '已从队列取出，准备通过 Codex 界面发送。'
+        : inlineImages.length
+          ? `已收到任务和 ${inlineImages.length} 张图片，准备通过 Codex 界面发送。`
+          : '已收到任务，准备通过 Codex 界面发送。';
     await this.upsertTaskCard(project, chatId, {
       reset: true,
       status: 'queued',
@@ -2566,13 +2620,21 @@ class BridgeRouter extends EventEmitter {
     });
 
     try {
-      await this.desktopInput.pasteIntoCodex({
+      const inputPayload = {
         text: prompt,
         threadId: project.threadId,
         openCodexThread: this.openCodexThread,
         restoreClipboard: this.store.state.settings.restoreClipboardAfterPaste !== false,
         onStep: (step) => this.updateCodexUiDeliveryStep(project, chatId, pending, step)
-      });
+      };
+      if (inlineImages.length && typeof this.desktopInput.pasteRichIntoCodex === 'function') {
+        await this.desktopInput.pasteRichIntoCodex({
+          ...inputPayload,
+          imagePaths: inlineImages.map((attachment) => attachment.path)
+        });
+      } else {
+        await this.desktopInput.pasteIntoCodex(inputPayload);
+      }
     } catch (error) {
       this.removeCodexUiPending(project.threadId, pending.requestId);
       throw error;
@@ -2583,10 +2645,16 @@ class BridgeRouter extends EventEmitter {
       lastSummary: `已通过 Codex 界面输入模式发送：${truncate(prompt, 600)}`
     });
     const sentSummary = options.followUpDuringBusy
-      ? '已粘贴补充消息到当前 Codex 线程，等待 Codex 回复。'
+      ? inlineImages.length
+        ? '已把图片和补充消息粘贴到当前 Codex 线程，等待 Codex 回复。'
+        : '已粘贴补充消息到当前 Codex 线程，等待 Codex 回复。'
       : options.fromQueue
-        ? '已从队列粘贴到 Codex 界面，等待 Codex 记录任务开始。'
-        : '已粘贴到 Codex 界面，等待 Codex 记录任务开始。';
+        ? inlineImages.length
+          ? '已从队列把图片和文字粘贴到 Codex 界面，等待 Codex 记录任务开始。'
+          : '已从队列粘贴到 Codex 界面，等待 Codex 记录任务开始。'
+        : inlineImages.length
+          ? '已把图片和文字粘贴到 Codex 界面，等待 Codex 记录任务开始。'
+          : '已粘贴到 Codex 界面，等待 Codex 记录任务开始。';
     await this.upsertTaskCard(project, chatId, {
       status: 'queued',
       threadId: project.threadId,
@@ -2632,6 +2700,7 @@ class BridgeRouter extends EventEmitter {
       chatId,
       prompt: normalizeMessageText(prompt),
       sourceMessageId: options.sourceMessageId || '',
+      attachments: Array.isArray(options.attachments) ? options.attachments : [],
       sentAt: Date.now(),
       turnId: '',
       userMessageSeen: false

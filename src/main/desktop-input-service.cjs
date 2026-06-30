@@ -206,6 +206,74 @@ end tell
     }
   }
 
+  async pasteRichIntoCodex({ text, imagePaths = [], threadId, openCodexThread, restoreClipboard = true, onStep }) {
+    const prompt = String(text || '').trim();
+    const images = Array.from(imagePaths || []).map((item) => String(item || '').trim()).filter(Boolean);
+    if (!prompt && !images.length) {
+      throw new Error('输入内容为空');
+    }
+    if (!threadId) {
+      throw new Error('Codex 界面输入模式需要先绑定 threadId');
+    }
+    if (typeof openCodexThread !== 'function') {
+      throw new Error('缺少打开 Codex 线程的能力');
+    }
+
+    await notifyStep(onStep, 'accessibility-check', '正在检查 macOS 辅助功能权限。');
+    const accessibilityEnabled = await this.checkAccessibility().catch(() => false);
+    if (!accessibilityEnabled) {
+      throw new Error(accessibilityHelp('系统辅助功能未启用'));
+    }
+    await notifyStep(onStep, 'accessibility-ok', '辅助功能权限正常。');
+
+    const previousClipboard = clipboard.readText();
+    try {
+      await notifyStep(onStep, 'open-thread', '正在打开 Codex 线程。');
+      await openCodexThread(threadId);
+      await notifyStep(onStep, 'thread-opened', '已打开 Codex 线程。');
+    } catch (error) {
+      throw new Error(`无法打开 Codex 线程：${error.message}`);
+    }
+
+    await delay(1300);
+    try {
+      for (const [index, imagePath] of images.entries()) {
+        const image = nativeImage.createFromPath(imagePath);
+        if (image.isEmpty()) {
+          throw new Error(`无法读取图片：${imagePath}`);
+        }
+        clipboard.writeImage(image);
+        await notifyStep(onStep, 'image-clipboard-ready', `已准备第 ${index + 1}/${images.length} 张图片。`);
+        await this.tryPasteWithRetry(onStep, {
+          submit: false,
+          message: `正在粘贴第 ${index + 1}/${images.length} 张图片到 Codex。`
+        });
+        await delay(900);
+      }
+
+      if (prompt) {
+        clipboard.writeText(prompt);
+        await notifyStep(onStep, 'clipboard-ready', '已准备文字说明。');
+        await this.tryPasteWithRetry(onStep, {
+          submit: false,
+          message: '正在粘贴文字说明。'
+        });
+        await delay(250);
+      }
+
+      await this.submitCodexInput(onStep);
+      await notifyStep(onStep, 'pasted', images.length
+        ? '已把图片和文字说明提交到 Codex 界面。'
+        : '已粘贴并提交到 Codex 界面。');
+    } catch (error) {
+      throw new Error(accessibilityHelp(error.message));
+    } finally {
+      if (restoreClipboard) {
+        setTimeout(() => clipboard.writeText(previousClipboard), 900);
+      }
+    }
+  }
+
   async captureCodexThread({ threadId, openCodexThread, outputDir }) {
     if (!threadId) {
       throw new Error('缺少 Codex threadId，无法截图');
@@ -370,12 +438,32 @@ end tell
     }
   }
 
-  async tryPasteWithRetry(onStep) {
+  async submitCodexInput(onStep) {
+    await notifyStep(onStep, 'submit', '正在提交到 Codex。');
+    await runAppleScript(`
+tell application "Codex"
+  activate
+end tell
+delay 0.25
+tell application "System Events"
+  if UI elements enabled is false then error "系统辅助功能未启用"
+  tell process "Codex"
+    set frontmost to true
+  end tell
+  delay 0.15
+  key code 36
+end tell
+`, 12000);
+  }
+
+  async tryPasteWithRetry(onStep, options = {}) {
+    const submit = options.submit !== false;
+    const message = options.message || (submit ? '正在粘贴并回车。' : '正在粘贴。');
     let lastError = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       if (attempt > 0) await delay(900);
       try {
-        await notifyStep(onStep, 'paste-attempt', attempt > 0 ? '正在重试粘贴。' : '正在粘贴并回车。');
+        await notifyStep(onStep, 'paste-attempt', attempt > 0 ? '正在重试粘贴。' : message);
         await runAppleScript(`
 tell application "Codex"
   activate
@@ -388,8 +476,7 @@ tell application "System Events"
   end tell
   delay 0.35
   keystroke "v" using {command down}
-  delay 0.25
-  key code 36
+  ${submit ? 'delay 0.25\n  key code 36' : ''}
 end tell
 `, 12000);
         return;
