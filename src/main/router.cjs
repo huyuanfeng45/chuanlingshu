@@ -234,6 +234,11 @@ function taskCardActions(project, task) {
 
   if (base.threadId && actionRequired?.kind !== 'approval') {
     actions.push({
+      text: '截图',
+      action: 'task_screenshot',
+      value: base
+    });
+    actions.push({
       text: '打开线程',
       action: 'open_thread',
       value: base
@@ -1305,6 +1310,9 @@ class BridgeRouter extends EventEmitter {
       case 'task_status':
         await this.refreshTaskCard(action.chatId, project);
         return;
+      case 'task_screenshot':
+        await this.sendCodexThreadScreenshot(action.chatId, project);
+        return;
       case 'task_retry':
         await this.retryTaskFromCard(action.chatId, project, action.messageId);
         return;
@@ -1348,12 +1356,10 @@ class BridgeRouter extends EventEmitter {
         result: latest.taskCard.result || '',
         error: latest.lastError || latest.taskCard.error || ''
       });
-      await this.sendCodexThreadScreenshot(chatId, latest);
       return;
     }
 
     await this.sendStatusCard(chatId, latest);
-    await this.sendCodexThreadScreenshot(chatId, latest);
   }
 
   async replyToCodexChoice(chatId, project, choiceValue, sourceMessageId = '') {
@@ -1420,7 +1426,7 @@ class BridgeRouter extends EventEmitter {
         threadId
       });
       await this.safeSendText(chatId, [
-        '状态已刷新，但 Codex 窗口截图发送失败。',
+        'Codex 窗口截图发送失败。',
         error.message
       ].join('\n'));
     }
@@ -2594,7 +2600,7 @@ class BridgeRouter extends EventEmitter {
     const summary = [
       `已超过 ${duration} 没有检测到 Codex 的可见反应。`,
       '我还没有看到任务开始、处理中说明、命令执行或工具输出。',
-      '可以点任务卡里的“刷新状态”查看截图，或到 Mac 上确认 Codex 窗口是否需要手动介入。'
+      '可以点任务卡里的“截图”查看 Codex 窗口，或到 Mac 上确认是否需要手动介入。'
     ].join('\n');
 
     this.store.addEvent('error', `Codex 超过 ${duration} 没有可见反应`, {
@@ -2622,7 +2628,7 @@ class BridgeRouter extends EventEmitter {
       `模式：${source}`,
       '',
       '我已经把任务发出，但还没有检测到任务开始、思考/处理进度、命令执行或工具输出。',
-      '你可以点任务卡里的“刷新状态”看截图，或到 Mac 上确认 Codex 窗口是否卡住。'
+      '你可以点任务卡里的“截图”看 Codex 窗口，或到 Mac 上确认 Codex 窗口是否卡住。'
     ].join('\n'));
   }
 
