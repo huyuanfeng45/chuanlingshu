@@ -2936,6 +2936,16 @@ class BridgeRouter extends EventEmitter {
       .find((pending) => !pending.userMessageSeen && actual === pending.prompt) || null;
   }
 
+  findAutoWatchPendingForUserMessage(event) {
+    const candidates = this.codexUiPendingCandidates(event)
+      .filter((pending) => pending.autoWatch && !pending.userMessageSeen);
+    if (event.turnId) {
+      const byTurn = candidates.find((pending) => !pending.turnId || pending.turnId === event.turnId);
+      if (byTurn) return byTurn;
+    }
+    return candidates[0] || null;
+  }
+
   findCodexUiPendingForTaskStarted(event) {
     const candidates = this.codexUiPendingCandidates(event);
     return candidates.find((pending) => !pending.turnId && !pending.userMessageSeen)
@@ -2982,6 +2992,60 @@ class BridgeRouter extends EventEmitter {
       turnId: event.turnId || task.turnId || project.activeTurnId || '',
       userMessageSeen: true
     };
+  }
+
+  explicitProjectChatId(project) {
+    if (!project) return '';
+    const direct = String(project.chatId || '').trim();
+    if (direct) return direct;
+
+    for (const [chatId, projectId] of Object.entries(this.store.state.activeByChat || {})) {
+      if (projectId === project.id && String(chatId || '').trim()) {
+        return String(chatId).trim();
+      }
+    }
+    return '';
+  }
+
+  canAutoWatchCodexUiEvent(project, event) {
+    if (!project?.threadId || project.threadId !== event.threadId) return false;
+    if (this.store.state.settings.autoWatchCodexUiTasks !== true) return false;
+    if (!this.explicitProjectChatId(project)) return false;
+    if (this.getCodexUiPendingList(event.threadId).length) return false;
+    const task = project.taskCard || {};
+    if (projectIsBusy(project)) return false;
+    if (['queued', 'running', 'waiting-input'].includes(task.status)) return false;
+    return true;
+  }
+
+  createAutoWatchCodexUiPending(project, event, options = {}) {
+    const chatId = this.explicitProjectChatId(project);
+    if (!chatId) return null;
+
+    const prompt = normalizeMessageText(options.prompt || project.taskCard?.prompt || '电脑端已开始的 Codex 任务');
+    const pending = {
+      requestId: `auto-watch:${event.threadId}:${event.turnId || Date.now()}`,
+      projectId: project.id,
+      projectAlias: project.alias,
+      threadId: event.threadId,
+      chatId,
+      prompt,
+      sourceMessageId: '',
+      sentAt: event.timeMs || Date.now(),
+      turnId: event.turnId || '',
+      userMessageSeen: Boolean(options.userMessageSeen),
+      autoWatch: true
+    };
+    this.addCodexUiPending(event.threadId, pending);
+
+    this.store.updateProject(project.id, {
+      status: 'running',
+      activeTurnId: event.turnId || project.activeTurnId || '',
+      chatId: project.chatId || chatId,
+      lastError: '',
+      lastSummary: '已自动接管电脑端正在运行的 Codex 任务。'
+    });
+    return pending;
   }
 
   watchCodexUiThread(threadId, options = {}) {
@@ -3166,15 +3230,32 @@ class BridgeRouter extends EventEmitter {
 
   async handleCodexUiUserMessage(event) {
     const actual = normalizeMessageText(event.text);
-    const pending = this.findCodexUiPendingForUserMessage(event, actual);
+    let pending = this.findCodexUiPendingForUserMessage(event, actual);
+    let project = pending
+      ? this.store.getProject(pending.projectId)
+      : this.store.getProjectByThread(event.threadId);
+
+    if (!pending && project && this.canAutoWatchCodexUiEvent(project, event)) {
+      pending = this.createAutoWatchCodexUiPending(project, event, {
+        prompt: actual || '电脑端已开始的 Codex 任务',
+        userMessageSeen: false
+      });
+    }
+    if (!pending) {
+      pending = this.findAutoWatchPendingForUserMessage(event);
+      if (pending) project = this.store.getProject(pending.projectId);
+    }
     if (!pending) return;
 
-    if (actual !== pending.prompt) return;
+    if (actual !== pending.prompt) {
+      if (!pending.autoWatch) return;
+      pending.prompt = actual || pending.prompt;
+    }
 
     pending.turnId = event.turnId || pending.turnId;
     pending.userMessageSeen = true;
 
-    const project = this.store.getProject(pending.projectId);
+    project = this.store.getProject(pending.projectId);
     if (!project) return;
 
     this.store.updateProject(project.id, {
@@ -3202,8 +3283,15 @@ class BridgeRouter extends EventEmitter {
       ? this.store.getProject(pending.projectId)
       : this.store.getProjectByThread(event.threadId);
     if (!pending) {
-      if (!this.shouldRecoverCodexUiEvent(project, event)) return;
-      pending = this.recoveredCodexUiPending(project, event);
+      if (this.shouldRecoverCodexUiEvent(project, event)) {
+        pending = this.recoveredCodexUiPending(project, event);
+      } else if (this.canAutoWatchCodexUiEvent(project, event)) {
+        pending = this.createAutoWatchCodexUiPending(project, event, {
+          userMessageSeen: true
+        });
+      } else {
+        return;
+      }
     }
     if (!project) return;
 
@@ -3221,7 +3309,11 @@ class BridgeRouter extends EventEmitter {
       threadId: event.threadId,
       turnId: pending.turnId || project.activeTurnId || '',
       prompt: pending.prompt,
-      summary: pending.recovered ? '断线恢复：已重新监听到 Codex 任务开始。' : '已监听到 Codex 任务开始。',
+      summary: pending.autoWatch
+        ? '已自动接管电脑端 Codex 任务，后续进展会继续更新到这张卡片。'
+        : pending.recovered
+          ? '断线恢复：已重新监听到 Codex 任务开始。'
+          : '已监听到 Codex 任务开始。',
       result: '',
       error: '',
       actionRequired: null,
@@ -3234,8 +3326,16 @@ class BridgeRouter extends EventEmitter {
     if (!project) return;
     this.markCodexReaction(event.threadId);
 
-    const pending = this.findCodexUiPendingForProgress(event);
-    if (!pending && !projectIsBusy(project)) return;
+    let pending = this.findCodexUiPendingForProgress(event);
+    if (!pending && !projectIsBusy(project)) {
+      if (this.canAutoWatchCodexUiEvent(project, event)) {
+        pending = this.createAutoWatchCodexUiPending(project, event, {
+          userMessageSeen: true
+        });
+      } else {
+        return;
+      }
+    }
 
     const chatId = this.responseChatId(project, pending?.chatId);
     if (!chatId) return;
@@ -3315,8 +3415,16 @@ class BridgeRouter extends EventEmitter {
     if (!project) return;
     this.markCodexReaction(event.threadId);
 
-    const pending = this.findCodexUiPendingForProgress(event);
-    if (!pending && !this.shouldRecoverCodexUiEvent(project, event)) return;
+    let pending = this.findCodexUiPendingForProgress(event);
+    if (!pending && !this.shouldRecoverCodexUiEvent(project, event)) {
+      if (this.canAutoWatchCodexUiEvent(project, event)) {
+        pending = this.createAutoWatchCodexUiPending(project, event, {
+          userMessageSeen: true
+        });
+      } else {
+        return;
+      }
+    }
 
     const chatId = this.responseChatId(project, pending?.chatId);
     if (!chatId) return;
@@ -3359,8 +3467,15 @@ class BridgeRouter extends EventEmitter {
       ? this.store.getProject(pending.projectId)
       : this.store.getProjectByThread(event.threadId);
     if (!pending) {
-      if (!this.shouldRecoverCodexUiEvent(project, event)) return;
-      pending = this.recoveredCodexUiPending(project, event);
+      if (this.shouldRecoverCodexUiEvent(project, event)) {
+        pending = this.recoveredCodexUiPending(project, event);
+      } else if (this.canAutoWatchCodexUiEvent(project, event)) {
+        pending = this.createAutoWatchCodexUiPending(project, event, {
+          userMessageSeen: true
+        });
+      } else {
+        return;
+      }
     }
     if (!pending) return;
     if (!pending.userMessageSeen) return;

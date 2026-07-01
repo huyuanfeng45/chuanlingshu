@@ -28,6 +28,7 @@ function createDefaultState() {
       autoStart: false,
       mirrorExistingThread: true,
       openCodexThreadOnMessage: true,
+      autoWatchCodexUiTasks: false,
       deliveryMode: 'appServer',
       restoreClipboardAfterPaste: true,
       permissionGuideSeen: false,

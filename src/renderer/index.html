@@ -224,6 +224,10 @@
               <span>收到飞书消息时自动打开对应 Codex 线程</span>
             </label>
             <label class="checkbox-row">
+              <input id="autoWatchCodexUiTasks" type="checkbox">
+              <span>自动接管电脑端已开始的 Codex 任务</span>
+            </label>
+            <label class="checkbox-row">
               <input id="restoreClipboardAfterPaste" type="checkbox">
               <span>界面输入后恢复剪贴板</span>
             </label>
@@ -560,6 +564,20 @@
           <button id="releaseNotesClose" type="button" class="icon-close" aria-label="关闭">×</button>
         </div>
         <div class="release-notes-list">
+          <details class="release-note-version">
+            <summary>
+              <span class="release-note-icon" aria-hidden="true">🛰️</span>
+              <span>
+                <strong>v0.1.62</strong>
+                <small>自动接管电脑端任务</small>
+              </span>
+            </summary>
+            <div class="release-note-body">
+              <p>🛰️ 设置里新增“自动接管电脑端已开始的 Codex 任务”。</p>
+              <p>🧾 开启后，已绑定飞书会话的 Codex 线程从电脑端手动开始新任务时，会自动补发任务卡。</p>
+              <p>🔒 默认关闭，未绑定线程不会自动推送到飞书群。</p>
+            </div>
+          </details>
           <details class="release-note-version">
             <summary>
               <span class="release-note-icon" aria-hidden="true">👀</span>

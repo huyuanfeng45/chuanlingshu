@@ -60,6 +60,7 @@ function getSettingsForm() {
     autoStart: $('#autoStart').checked,
     mirrorExistingThread: $('#mirrorExistingThread').checked,
     openCodexThreadOnMessage: $('#openCodexThreadOnMessage').checked,
+    autoWatchCodexUiTasks: $('#autoWatchCodexUiTasks').checked,
     restoreClipboardAfterPaste: $('#restoreClipboardAfterPaste').checked
   };
 }
@@ -79,6 +80,7 @@ function fillSettings(state) {
   $('#autoStart').checked = Boolean(state.settings.autoStart);
   $('#mirrorExistingThread').checked = state.settings.mirrorExistingThread !== false;
   $('#openCodexThreadOnMessage').checked = state.settings.openCodexThreadOnMessage !== false;
+  $('#autoWatchCodexUiTasks').checked = Boolean(state.settings.autoWatchCodexUiTasks);
   $('#restoreClipboardAfterPaste').checked = state.settings.restoreClipboardAfterPaste !== false;
 }
 
