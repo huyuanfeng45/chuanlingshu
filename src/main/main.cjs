@@ -127,7 +127,7 @@ function permissionStatus() {
       status: screenStatus,
       detail: screenGranted
         ? '已允许传令书截取 Codex 窗口状态。'
-        : '用于点击任务卡“截图”时把 Codex 窗口画面发回飞书。'
+        : '用于点击任务卡“线程截图”时把 Codex 窗口画面发回飞书。'
     }
   };
 }

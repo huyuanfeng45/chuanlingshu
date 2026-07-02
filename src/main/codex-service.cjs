@@ -279,6 +279,14 @@ class CodexService extends EventEmitter {
       ]
     });
   }
+
+  async interruptTurn({ threadId, turnId }) {
+    await this.ensureStarted();
+    return this.request('turn/interrupt', {
+      threadId,
+      turnId
+    });
+  }
 }
 
 module.exports = {

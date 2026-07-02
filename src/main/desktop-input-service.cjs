@@ -1,7 +1,11 @@
 const { BrowserWindow, clipboard, nativeImage } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const https = require('https');
+const os = require('os');
 const path = require('path');
+
+const CODEX_USAGE_API_URL = 'https://chatgpt.com/backend-api/wham/usage';
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -137,6 +141,193 @@ function accessibilityHelp(errorMessage = '') {
     '如果权限已开启，请先在 Codex 线程底部输入框点一下，再重试。',
     errorMessage ? `原始错误：${errorMessage}` : ''
   ].filter(Boolean).join('\n');
+}
+
+function readNumber(value, keys) {
+  for (const key of keys) {
+    const raw = value?.[key];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const number = Number(raw);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function clampPercent(value) {
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, Math.round(value * 10) / 10));
+}
+
+function normalizeResetAtMs(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number' || /^\d+(\.\d+)?$/.test(String(value))) {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return null;
+    return numeric > 1e12 ? numeric : numeric * 1000;
+  }
+
+  const parsed = Date.parse(String(value));
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function normalizeUsageWindow(value) {
+  if (!value || typeof value !== 'object') return null;
+
+  const windowSeconds = readNumber(value, ['limit_window_seconds', 'window_duration_seconds', 'windowSeconds']);
+  const windowMinutes = readNumber(value, ['windowDurationMins', 'window_duration_mins', 'window_minutes']);
+  const durationSeconds = Number.isFinite(windowSeconds)
+    ? windowSeconds
+    : (Number.isFinite(windowMinutes) ? windowMinutes * 60 : null);
+
+  const usedPercent = readNumber(value, ['used_percent', 'usedPercent']);
+  let remainingPercent = readNumber(value, ['remaining_percent', 'remainingPercent', 'remaining']);
+  if (!Number.isFinite(remainingPercent) && Number.isFinite(usedPercent)) {
+    remainingPercent = 100 - usedPercent;
+  }
+
+  remainingPercent = clampPercent(remainingPercent);
+  if (!Number.isFinite(remainingPercent)) return null;
+
+  const resetAfterSeconds = readNumber(value, ['reset_after_seconds', 'resetAfterSeconds']);
+  let resetAtMs = normalizeResetAtMs(value.reset_at ?? value.resetsAt ?? value.resetAt);
+  if (!resetAtMs && Number.isFinite(resetAfterSeconds)) {
+    resetAtMs = Date.now() + resetAfterSeconds * 1000;
+  }
+
+  return {
+    durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : null,
+    remainingPercent,
+    usedPercent: Number.isFinite(usedPercent) ? usedPercent : null,
+    resetAt: resetAtMs ? new Date(resetAtMs).toISOString() : '',
+    resetAfterSeconds: Number.isFinite(resetAfterSeconds) ? resetAfterSeconds : null
+  };
+}
+
+function durationMatches(actualSeconds, targetSeconds) {
+  if (!Number.isFinite(actualSeconds)) return false;
+  return Math.abs(actualSeconds - targetSeconds) <= Math.max(60, targetSeconds * 0.05);
+}
+
+function collectUsageWindows(value, windows = [], context = {}) {
+  if (!value || typeof value !== 'object') return windows;
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectUsageWindows(item, windows, context);
+    return windows;
+  }
+
+  const nextContext = { ...context };
+  if (Object.prototype.hasOwnProperty.call(value, 'limit_name')) {
+    nextContext.limitName = value.limit_name || null;
+  } else if (Object.prototype.hasOwnProperty.call(value, 'limitName')) {
+    nextContext.limitName = value.limitName || null;
+  }
+
+  const usageWindow = normalizeUsageWindow(value);
+  if (usageWindow) {
+    windows.push({
+      ...usageWindow,
+      limitName: nextContext.limitName || null
+    });
+  }
+
+  for (const child of Object.values(value)) {
+    collectUsageWindows(child, windows, nextContext);
+  }
+
+  return windows;
+}
+
+function chooseUsageWindow(windows, targetSeconds) {
+  const candidates = windows
+    .filter((window) => durationMatches(window.durationSeconds, targetSeconds))
+    .sort((left, right) => {
+      const leftNamed = left.limitName ? 1 : 0;
+      const rightNamed = right.limitName ? 1 : 0;
+      if (leftNamed !== rightNamed) return leftNamed - rightNamed;
+      return Math.abs(left.durationSeconds - targetSeconds) - Math.abs(right.durationSeconds - targetSeconds);
+    });
+  return candidates[0] || null;
+}
+
+function parseCodexUsagePayload(payload) {
+  const rateLimit = payload?.rate_limit || {};
+  const primaryWindow = normalizeUsageWindow(rateLimit.primary_window || rateLimit.primaryWindow);
+  const secondaryWindow = normalizeUsageWindow(rateLimit.secondary_window || rateLimit.secondaryWindow);
+  const allWindows = collectUsageWindows(payload);
+
+  return {
+    planType: payload?.plan_type || payload?.planType || '',
+    allowed: rateLimit.allowed !== false,
+    limitReached: Boolean(rateLimit.limit_reached || rateLimit.limitReached),
+    fiveHour: durationMatches(primaryWindow?.durationSeconds, 5 * 60 * 60)
+      ? primaryWindow
+      : chooseUsageWindow(allWindows, 5 * 60 * 60),
+    weekly: durationMatches(secondaryWindow?.durationSeconds, 7 * 24 * 60 * 60)
+      ? secondaryWindow
+      : chooseUsageWindow(allWindows, 7 * 24 * 60 * 60)
+  };
+}
+
+function getCodexAccessToken() {
+  const authPath = path.join(os.homedir(), '.codex', 'auth.json');
+  let auth;
+  try {
+    auth = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+  } catch {
+    throw new Error('没有找到 Codex 登录信息，请先打开 Codex App 并完成登录。');
+  }
+
+  const token = auth?.tokens?.access_token;
+  if (!token) {
+    throw new Error('Codex 登录信息里没有访问令牌，请先在 Codex App 里重新登录。');
+  }
+
+  return token;
+}
+
+function fetchCodexUsage(token, timeoutMs = 12000) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(CODEX_USAGE_API_URL, {
+      method: 'GET',
+      timeout: timeoutMs,
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: 'application/json',
+        'user-agent': 'Chuanlingshu/usage-check'
+      }
+    }, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 2 * 1024 * 1024) {
+          req.destroy(new Error('Codex 用量接口返回内容过大'));
+        }
+      });
+      res.on('end', () => {
+        const statusCode = res.statusCode || 0;
+        if (statusCode < 200 || statusCode >= 300) {
+          if (statusCode === 401 || statusCode === 403) {
+            reject(new Error('Codex 登录态已失效或没有权限，请先打开 Codex App 重新登录。'));
+            return;
+          }
+          reject(new Error(`Codex 用量接口返回异常：HTTP ${statusCode}`));
+          return;
+        }
+
+        try {
+          resolve(JSON.parse(body));
+        } catch {
+          reject(new Error('Codex 用量接口返回内容不是有效 JSON'));
+        }
+      });
+    });
+
+    req.on('timeout', () => req.destroy(new Error('Codex 剩余用量读取超时')));
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 async function notifyStep(onStep, step, message) {
@@ -384,6 +575,53 @@ end tell
       timestamp,
       bounds
     };
+  }
+
+  async getCodexUsageRemaining() {
+    const token = getCodexAccessToken();
+    const payload = await fetchCodexUsage(token);
+    const usage = parseCodexUsagePayload(payload);
+    if (!usage.fiveHour && !usage.weekly) {
+      throw new Error('Codex 没有返回 5 小时或一周的剩余用量窗口。');
+    }
+    return usage;
+  }
+
+  async stopCodexThread({ threadId, openCodexThread, onStep } = {}) {
+    if (!threadId) {
+      throw new Error('缺少 Codex threadId，无法停止线程');
+    }
+    if (typeof openCodexThread !== 'function') {
+      throw new Error('缺少打开 Codex 线程的能力，无法停止线程');
+    }
+
+    await notifyStep(onStep, 'open-thread', '正在打开 Codex 线程。');
+    await openCodexThread(threadId);
+    await delay(900);
+    await notifyStep(onStep, 'stop-thread', '正在发送停止指令。');
+
+    try {
+      await runAppleScript(`
+tell application "Codex"
+  activate
+end tell
+delay 0.45
+tell application "System Events"
+  if UI elements enabled is false then error "系统辅助功能未启用"
+  tell process "Codex"
+    set frontmost to true
+  end tell
+  delay 0.25
+  key code 53
+  delay 0.2
+  keystroke "." using {command down}
+  delay 0.2
+  key code 53
+end tell
+`, 12000);
+    } catch (error) {
+      throw new Error(accessibilityHelp(error.message));
+    }
   }
 
   async addTimestampToScreenshot(filePath, timestamp) {

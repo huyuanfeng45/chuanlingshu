@@ -117,6 +117,14 @@ class DesktopInputService {
     throw new Error('Windows 版本暂未启用 Codex 窗口截图回传，请先使用文本状态和最终回复回传。');
   }
 
+  async getCodexUsageRemaining() {
+    throw new Error('Windows 版本暂未启用 Codex 剩余用量读取，请先在 Codex 界面左下角查看。');
+  }
+
+  async stopCodexThread() {
+    throw new Error('Windows 版本暂未启用 Codex 线程停止，请先在 Codex 界面点击停止。');
+  }
+
   async tryPasteWithRetry(onStep) {
     let lastError = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {

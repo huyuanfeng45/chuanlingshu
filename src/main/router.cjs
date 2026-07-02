@@ -42,6 +42,40 @@ function displayTime(value = Date.now()) {
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
+function formatUsageResetTime(value) {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+}
+
+function formatUsagePercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '未知';
+  return Number.isInteger(number) ? `${number}%` : `${number.toFixed(1)}%`;
+}
+
+function formatUsageLine(label, usageWindow) {
+  if (!usageWindow) return `${label}：暂未读取到`;
+  const resetText = formatUsageResetTime(usageWindow.resetAt);
+  return `${label}：${formatUsagePercent(usageWindow.remainingPercent)} 剩余${resetText ? `（重置：${resetText}）` : ''}`;
+}
+
+function codexUsageMessage(project, usage) {
+  return [
+    'Codex 剩余用量',
+    `项目：${project.alias || project.id || '未命名项目'}`,
+    formatUsageLine('5 小时', usage?.fiveHour),
+    formatUsageLine('一周', usage?.weekly)
+  ].join('\n');
+}
+
 function formatDurationMs(ms) {
   const totalSeconds = Math.max(1, Math.round(Number(ms || 0) / 1000));
   if (totalSeconds < 60) return `${totalSeconds} 秒`;
@@ -71,6 +105,7 @@ function taskStatusText(status) {
     running: '处理中',
     'waiting-input': '等待你处理',
     'sent-to-codex-ui': '已粘贴到 Codex 界面',
+    stopped: '已停止',
     completed: '已完成',
     failed: '失败'
   };
@@ -80,6 +115,7 @@ function taskStatusText(status) {
 function taskTemplate(status) {
   if (status === 'completed') return 'carmine';
   if (status === 'failed') return 'red';
+  if (status === 'stopped') return 'orange';
   if (status === 'waiting-input') return 'orange';
   return 'blue';
 }
@@ -234,13 +270,31 @@ function taskCardActions(project, task) {
 
   if (base.threadId && actionRequired?.kind !== 'approval') {
     actions.push({
-      text: '截图',
+      text: '线程截图',
       action: 'task_screenshot',
       value: base
     });
     actions.push({
       text: '打开线程',
       action: 'open_thread',
+      value: base
+    });
+    actions.push({
+      text: '剩余用量',
+      action: 'codex_usage_remaining',
+      value: base
+    });
+    if (busy) {
+      actions.push({
+        text: '停止线程',
+        action: 'thread_stop',
+        type: 'danger',
+        value: base
+      });
+    }
+    actions.push({
+      text: '线程引导',
+      action: 'thread_guidance',
       value: base
     });
   }
@@ -541,6 +595,7 @@ class BridgeRouter extends EventEmitter {
     this.pendingPromptByThread = new Map();
     this.pendingAttachmentsByRoute = new Map();
     this.noResponseWatches = new Map();
+    this.pendingThreadGuidanceByChat = new Map();
     this.uploadedResultFileKeys = new Set();
   }
 
@@ -557,6 +612,11 @@ class BridgeRouter extends EventEmitter {
 
     try {
       let text = rawText;
+      if (this.hasPendingThreadGuidance(message.chatId) && !text.startsWith('/')) {
+        await this.handlePendingThreadGuidanceMessage(message, text, attachments);
+        return;
+      }
+
       if (!attachments.length && text.startsWith('/')) {
         await this.handleCommand(message, text);
         return;
@@ -1313,6 +1373,15 @@ class BridgeRouter extends EventEmitter {
       case 'task_screenshot':
         await this.sendCodexThreadScreenshot(action.chatId, project);
         return;
+      case 'codex_usage_remaining':
+        await this.sendCodexUsageRemaining(action.chatId, project);
+        return;
+      case 'thread_stop':
+        await this.stopThreadFromCard(action.chatId, project);
+        return;
+      case 'thread_guidance':
+        await this.askThreadGuidanceFromCard(action.chatId, project, action.messageId);
+        return;
       case 'task_retry':
         await this.retryTaskFromCard(action.chatId, project, action.messageId);
         return;
@@ -1432,6 +1501,190 @@ class BridgeRouter extends EventEmitter {
     }
   }
 
+  async sendCodexUsageRemaining(chatId, project) {
+    const latest = this.store.getProject(project.id) || project;
+    if (!this.desktopInput || typeof this.desktopInput.getCodexUsageRemaining !== 'function') {
+      await this.safeSendText(chatId, '当前版本没有初始化 Codex 剩余用量读取能力。');
+      return;
+    }
+
+    try {
+      const usage = await this.desktopInput.getCodexUsageRemaining();
+      await this.safeSendText(chatId, codexUsageMessage(latest, usage));
+      this.store.addEvent('system', '已发送 Codex 剩余用量', {
+        project: latest.alias,
+        fiveHour: usage.fiveHour?.remainingPercent ?? null,
+        weekly: usage.weekly?.remainingPercent ?? null
+      });
+    } catch (error) {
+      this.store.addEvent('error', `Codex 剩余用量读取失败：${error.message}`, {
+        project: latest.alias,
+        threadId: latest.taskCard?.threadId || latest.threadId || ''
+      });
+      await this.safeSendText(chatId, [
+        'Codex 剩余用量读取失败。',
+        error.message
+      ].join('\n'));
+    }
+  }
+
+  hasPendingThreadGuidance(chatId) {
+    const pending = this.pendingThreadGuidanceByChat.get(chatId);
+    if (!pending) return false;
+    if (Date.now() - Number(pending.createdAt || 0) > 10 * 60 * 1000) {
+      this.pendingThreadGuidanceByChat.delete(chatId);
+      return false;
+    }
+    return true;
+  }
+
+  async askThreadGuidanceFromCard(chatId, project, sourceMessageId = '') {
+    const latest = this.store.getProject(project.id) || project;
+    const threadId = latest.taskCard?.threadId || latest.threadId || '';
+    if (!threadId) {
+      await this.safeSendText(chatId, '这张任务卡没有绑定 Codex 线程，暂时不能进行线程引导。');
+      return;
+    }
+
+    this.pendingThreadGuidanceByChat.set(chatId, {
+      projectId: latest.id,
+      threadId,
+      sourceMessageId,
+      createdAt: Date.now()
+    });
+    this.store.setActiveProject(chatId, latest.id);
+
+    await this.safeSendText(chatId, [
+      '已进入线程引导模式。',
+      `项目：${latest.alias}`,
+      `线程：${threadId}`,
+      '',
+      '请直接发送你要引导 Codex 的文字，我会把下一条消息追加到这个线程。',
+      '如果不想继续，发送 /cancel-guide 或 /取消引导。'
+    ].join('\n'));
+  }
+
+  async cancelThreadGuidanceFromCommand(chatId) {
+    if (!this.hasPendingThreadGuidance(chatId)) {
+      await this.safeSendText(chatId, '当前没有等待中的线程引导。');
+      return;
+    }
+    this.pendingThreadGuidanceByChat.delete(chatId);
+    await this.safeSendText(chatId, '已取消线程引导。');
+  }
+
+  async handlePendingThreadGuidanceMessage(message, text, attachments = []) {
+    const pending = this.pendingThreadGuidanceByChat.get(message.chatId);
+    if (!pending) return;
+
+    if (attachments.length) {
+      await this.safeSendText(message.chatId, '线程引导暂时只接收文字。请直接发送要引导 Codex 的文字，或发送 /cancel-guide 取消。');
+      return;
+    }
+
+    const prompt = normalizeMessageText(text);
+    if (!prompt) {
+      await this.safeSendText(message.chatId, '请发送要引导 Codex 的文字，或发送 /cancel-guide 取消。');
+      return;
+    }
+
+    this.pendingThreadGuidanceByChat.delete(message.chatId);
+    const project = this.store.getProject(pending.projectId);
+    if (!project) {
+      await this.safeSendText(message.chatId, '线程引导失败：对应项目已经不存在。');
+      return;
+    }
+
+    if (pending.threadId && project.threadId !== pending.threadId) {
+      this.store.updateProject(project.id, { threadId: pending.threadId });
+    }
+
+    await this.sendPromptToProject(project.id, prompt, message.chatId, {
+      appendToActive: true,
+      queueIfBusy: false,
+      followUpDuringBusy: true,
+      sourceMessageId: message.messageId || pending.sourceMessageId || ''
+    });
+    this.store.addEvent('system', '已发送线程引导', {
+      project: project.alias,
+      threadId: pending.threadId
+    });
+  }
+
+  async stopThreadFromCard(chatId, project) {
+    const latest = this.store.getProject(project.id) || project;
+    const threadId = latest.taskCard?.threadId || latest.threadId || '';
+    const turnId = latest.activeTurnId || latest.taskCard?.turnId || '';
+    if (!threadId) {
+      await this.safeSendText(chatId, '这张任务卡没有绑定 Codex 线程，暂时不能停止。');
+      return;
+    }
+
+    const errors = [];
+    let stopped = false;
+    const tryAppServerStop = async () => {
+      if (!turnId || !this.codex || typeof this.codex.interruptTurn !== 'function') return false;
+      try {
+        await this.codex.interruptTurn({ threadId, turnId });
+        return true;
+      } catch (error) {
+        if (/no active turn to interrupt/i.test(error.message || '')) return true;
+        errors.push(`app-server：${error.message}`);
+        return false;
+      }
+    };
+    const tryUiStop = async () => {
+      if (!this.desktopInput || typeof this.desktopInput.stopCodexThread !== 'function') return false;
+      if (typeof this.openCodexThread !== 'function') return false;
+      try {
+        await this.desktopInput.stopCodexThread({
+          threadId,
+          openCodexThread: this.openCodexThread
+        });
+        return true;
+      } catch (error) {
+        errors.push(`Codex 界面：${error.message}`);
+        return false;
+      }
+    };
+
+    if (this.store.state.settings.deliveryMode === 'codexUi') {
+      stopped = await tryUiStop();
+      if (!stopped) stopped = await tryAppServerStop();
+    } else {
+      stopped = await tryAppServerStop();
+      if (!stopped) stopped = await tryUiStop();
+    }
+
+    if (!stopped) {
+      await this.safeSendText(chatId, [
+        '停止线程失败。',
+        errors.length ? errors.join('\n') : '没有可用的停止方式。'
+      ].join('\n'));
+      return;
+    }
+
+    this.markCodexReaction(threadId);
+    this.setCodexUiPendingList(threadId, []);
+    this.pendingPromptByThread.delete(threadId);
+    this.store.updateProject(latest.id, {
+      status: 'stopped',
+      activeTurnId: '',
+      lastError: '',
+      lastSummary: '已请求停止 Codex 线程。'
+    });
+    await this.upsertTaskCard(latest, chatId, {
+      status: 'stopped',
+      threadId,
+      turnId: '',
+      summary: '已发送停止指令，Codex 会尽快中断当前任务。',
+      result: '',
+      error: '',
+      actionRequired: null
+    });
+    await this.safeSendText(chatId, `已发送停止线程指令。\n项目：${latest.alias}\n线程：${threadId}`);
+  }
+
   async retryTaskFromCard(chatId, project, sourceMessageId) {
     const latest = this.store.getProject(project.id) || project;
     const prompt = latest.taskCard?.prompt || '';
@@ -1536,6 +1789,10 @@ class BridgeRouter extends EventEmitter {
       case '/cancel-attachments':
         await this.cancelPendingAttachmentsFromCommand(chatId);
         return;
+      case '/cancel-guide':
+      case '/取消引导':
+        await this.cancelThreadGuidanceFromCommand(chatId);
+        return;
       case '/where':
         await this.sendCurrentRoute(chatId);
         return;
@@ -1588,6 +1845,7 @@ class BridgeRouter extends EventEmitter {
       '/clear-queue [项目别名] 清空队列',
       '/send-attachments 立即发送暂存附件',
       '/cancel-attachments 取消暂存附件',
+      '/cancel-guide 取消等待中的线程引导',
       '/where 查看当前飞书会话绑定到哪个 Codex 线程',
       '/bind-chat 项目别名 [chat_id] 绑定当前群/指定群到项目',
       '/unbind-chat [chat_id] 解除当前群/指定群绑定',
@@ -2600,7 +2858,7 @@ class BridgeRouter extends EventEmitter {
     const summary = [
       `已超过 ${duration} 没有检测到 Codex 的可见反应。`,
       '我还没有看到任务开始、处理中说明、命令执行或工具输出。',
-      '可以点任务卡里的“截图”查看 Codex 窗口，或到 Mac 上确认是否需要手动介入。'
+      '可以点任务卡里的“线程截图”查看 Codex 窗口，或到 Mac 上确认是否需要手动介入。'
     ].join('\n');
 
     this.store.addEvent('error', `Codex 超过 ${duration} 没有可见反应`, {
@@ -2628,7 +2886,7 @@ class BridgeRouter extends EventEmitter {
       `模式：${source}`,
       '',
       '我已经把任务发出，但还没有检测到任务开始、思考/处理进度、命令执行或工具输出。',
-      '你可以点任务卡里的“截图”看 Codex 窗口，或到 Mac 上确认 Codex 窗口是否卡住。'
+      '你可以点任务卡里的“线程截图”看 Codex 窗口，或到 Mac 上确认 Codex 窗口是否卡住。'
     ].join('\n'));
   }
 
